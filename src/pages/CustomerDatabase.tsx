@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Search, Filter, Download, Mail, Phone, MoreVertical, Plus, X, Edit, QrCode, Send, Trash2, CheckCircle2, Loader2 } from 'lucide-react';
+import { Search, Filter, Download, Mail, Phone, MoreVertical, Plus, X, Edit, QrCode, Send, Trash2, CheckCircle2, Loader2, ChevronUp } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { supabase } from '../lib/supabase';
 import { Tables } from '../database.types';
@@ -21,6 +21,15 @@ export const CustomerDatabase = ({ branchId }: { branchId?: string }) => {
     full_name: '', phone: '', email: '', gender: 'Male', birth_date: '', referral_source: '', is_active: true
   });
 
+  // Pagination & Sorting State
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const [sortConfig, setSortConfig] = useState<{ column: keyof Customer, ascending: boolean }>({
+    column: 'code',
+    ascending: true
+  });
+  const itemsPerPage = 50;
+
   // --- FETCHING ---
   useEffect(() => {
     fetchCustomers();
@@ -33,13 +42,9 @@ export const CustomerDatabase = ({ branchId }: { branchId?: string }) => {
         { event: '*', schema: 'public', table: 'customers' },
         (payload) => {
           console.log('Realtime update:', payload);
-          if (payload.eventType === 'INSERT') {
-            setCustomers((prev) => [payload.new as Customer, ...prev]);
-          } else if (payload.eventType === 'UPDATE') {
-            setCustomers((prev) => prev.map((c) => (c.id === payload.new.id ? (payload.new as Customer) : c)));
-          } else if (payload.eventType === 'DELETE') {
-            setCustomers((prev) => prev.filter((c) => c.id !== payload.old.id));
-          }
+          // For large datasets with server pagination, we should probably just refresh the current page
+          // or handle inserts/deletes carefully. For now, simple refresh is safest for counts.
+          fetchCustomers();
         }
       )
       .subscribe();
@@ -47,7 +52,7 @@ export const CustomerDatabase = ({ branchId }: { branchId?: string }) => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [currentPage, searchTerm, sortConfig]);
 
   // Log email errors to console for debugging
   useEffect(() => {
@@ -68,19 +73,31 @@ export const CustomerDatabase = ({ branchId }: { branchId?: string }) => {
 
   const fetchCustomers = async () => {
     setLoading(true);
-    console.log('Fetching customers from Supabase...');
+    console.log('Fetching customers from Supabase (Server-side Pagination)...');
     try {
-      const { data, error } = await supabase
+      const from = (currentPage - 1) * itemsPerPage;
+      const to = from + itemsPerPage - 1;
+
+      let query = supabase
         .from('customers')
-        .select('*')
-        .order('created_at', { ascending: false });
+        .select('*', { count: 'exact' });
+
+      if (searchTerm) {
+        query = query.or(`full_name.ilike.%${searchTerm}%,code.ilike.%${searchTerm}%`);
+      }
+
+      const { data, error, count } = await query
+        .order(sortConfig.column, { ascending: sortConfig.ascending })
+        .range(from, to);
 
       if (error) {
         console.error('Error fetching customers:', error);
         throw error;
       }
-      console.log('Customers fetched successfully:', data);
+      
+      console.log('Total customers count:', count);
       setCustomers(data || []);
+      setTotalCount(count || 0);
     } catch (error: any) {
       showNotification('خطأ في تحميل البيانات: ' + error.message);
     } finally {
@@ -210,10 +227,18 @@ export const CustomerDatabase = ({ branchId }: { branchId?: string }) => {
     setTimeout(() => setNotification(null), 3000);
   };
 
-  const filteredCustomers = customers.filter(c =>
-    c.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    c.code.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // No client-side filtering needed anymore as we do it on server
+  const filteredCustomers = customers;
+
+  // Pagination Logic
+  const totalPages = Math.ceil(totalCount / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const paginatedCustomers = customers; // Already paginated from server
+
+  // Reset to first page when search changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm]);
 
   return (
     <div className="space-y-8 animate-in fade-in duration-700 font-['Cairo'] text-right pb-20 relative">
@@ -245,7 +270,14 @@ export const CustomerDatabase = ({ branchId }: { branchId?: string }) => {
           >
             <Plus size={18} /> إضافة عميل جديد
           </button>
-          <button className="flex items-center gap-2 px-6 py-3 bg-slate-100 text-slate-600 rounded-2xl font-black text-sm hover:bg-slate-200 transition-all"><Filter size={18} /> تصفية</button>
+          <button 
+            onClick={() => setSortConfig(prev => ({ column: 'code', ascending: !prev.ascending }))}
+            className="flex items-center gap-2 px-6 py-3 bg-indigo-50 text-indigo-600 rounded-2xl font-black text-sm hover:bg-indigo-100 transition-all border border-indigo-100 shadow-sm"
+          >
+            {sortConfig.ascending ? <ChevronUp size={18} /> : <ChevronUp size={18} className="rotate-180" />} 
+            ترتيب {sortConfig.ascending ? 'تصاعدي' : 'تنازلي'}
+          </button>
+          
           <button className="flex items-center gap-2 px-6 py-3 bg-slate-900 text-white rounded-2xl font-black text-sm hover:bg-slate-800 transition-all"><Download size={18} /> تصدير Excel</button>
         </div>
       </div>
@@ -261,7 +293,20 @@ export const CustomerDatabase = ({ branchId }: { branchId?: string }) => {
         <table className="w-full text-right">
           <thead>
             <tr className="bg-slate-50 text-slate-400 text-[10px] font-black uppercase tracking-widest border-b border-slate-100">
-              <th className="px-8 py-6">الاسم والكود</th>
+              <th 
+                className="px-8 py-6 cursor-pointer hover:text-indigo-600 transition-colors group"
+                onClick={() => setSortConfig(prev => ({ 
+                  column: 'code', 
+                  ascending: prev.column === 'code' ? !prev.ascending : true 
+                }))}
+              >
+                <div className="flex items-center gap-2">
+                  <span>الاسم والكود</span>
+                  {sortConfig.column === 'code' && (
+                    <ChevronUp className={`transition-transform duration-300 ${sortConfig.ascending ? '' : 'rotate-180'}`} size={12} />
+                  )}
+                </div>
+              </th>
               <th className="px-6 py-6">التواصل</th>
               <th className="px-6 py-6 text-center">النوع</th>
               <th className="px-6 py-6 text-center">حالة البريد</th>
@@ -277,7 +322,7 @@ export const CustomerDatabase = ({ branchId }: { branchId?: string }) => {
                 </td>
               </tr>
             )}
-            {filteredCustomers.map(customer => (
+            {paginatedCustomers.map(customer => (
               <tr key={customer.id} className="hover:bg-indigo-50/20 transition-all group">
                 <td className="px-8 py-6">
                   <div className="flex items-center gap-3">
@@ -344,6 +389,62 @@ export const CustomerDatabase = ({ branchId }: { branchId?: string }) => {
           </tbody>
         </table>
       </div>
+
+      {/* Pagination Controls */}
+      {!loading && totalPages > 1 && (
+        <div className="flex flex-col md:flex-row items-center justify-between gap-6 px-8 py-6 bg-white rounded-[2.5rem] border border-slate-100 shadow-sm">
+          <div className="text-xs font-black text-slate-400 uppercase tracking-widest">
+            عرض {startIndex + 1} - {Math.min(startIndex + itemsPerPage, totalCount)} من {totalCount} عميل
+          </div>
+          
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+              disabled={currentPage === 1}
+              className="p-3 bg-slate-50 text-slate-600 rounded-2xl hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+            >
+              بعده
+            </button>
+
+            <div className="flex items-center gap-1">
+              {[...Array(Math.min(5, totalPages))].map((_, i) => {
+                let pageNum;
+                if (totalPages <= 5) {
+                  pageNum = i + 1;
+                } else if (currentPage <= 3) {
+                  pageNum = i + 1;
+                } else if (currentPage >= totalPages - 2) {
+                  pageNum = totalPages - 4 + i;
+                } else {
+                  pageNum = currentPage - 2 + i;
+                }
+
+                return (
+                  <button
+                    key={pageNum}
+                    onClick={() => setCurrentPage(pageNum)}
+                    className={`w-10 h-10 rounded-xl font-black text-xs transition-all ${
+                      currentPage === pageNum
+                        ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200'
+                        : 'bg-slate-50 text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    {pageNum}
+                  </button>
+                );
+              })}
+            </div>
+
+            <button
+              onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+              disabled={currentPage === totalPages}
+              className="p-3 bg-slate-50 text-slate-600 rounded-2xl hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+            >
+              قبله
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* --- MODALS --- */}
 

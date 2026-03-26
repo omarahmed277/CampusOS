@@ -10,12 +10,17 @@ export const Dashboard = ({ branchId }: { branchId?: string }) => {
   const [stats, setStats] = useState({
     presentNow: 0,
     dailyRevenue: 0,
-    roomOccupancy: 85, // Mock for now
+    roomOccupancy: 0,
     newMembersToday: 0,
-    totalSubscriptions: 156, // Mock for now
-    activeSubscriptions: 142,
-    expiredSubscriptions: 14,
-    retentionRate: 92,
+    totalSubscriptions: 0,
+    activeSubscriptions: 0,
+    expiredSubscriptions: 0,
+    retentionRate: 0,
+    dailyRevenueHistory: [] as { date: string, amount: number }[],
+    revenueTrend: 0,
+    subscriptionTrend: 0,
+    membersTrend: 0,
+    totalMembers: 0,
   });
 
   useEffect(() => {
@@ -52,6 +57,12 @@ export const Dashboard = ({ branchId }: { branchId?: string }) => {
         .eq('home_branch_id', branchId)
         .gte('created_at', todayISO);
       if (err3) throw err3;
+
+      // 3.5. Total Members
+      const { count: totalMembers, error: err3_5 } = await supabase
+        .from('customers')
+        .select('*', { count: 'exact', head: true });
+      if (err3_5) throw err3_5;
 
       // 4. Subscriptions
       const { data: subs, error: err4 } = await supabase
@@ -90,13 +101,14 @@ export const Dashboard = ({ branchId }: { branchId?: string }) => {
         activeSubscriptions,
         expiredSubscriptions,
         roomOccupancy,
+        totalMembers: totalMembers || 0,
       }));
 
       // 6. Retention Rate (% of customers with > 1 visit)
       const { data: allVisits, error: err6 } = await supabase
-        .from('visits')
+        .from('workspace_sessions')
         .select('customer_id')
-        .eq('branch_id', branchId);
+        .eq('status', 'completed');
 
       if (!err6 && allVisits) {
         const customerVisitCounts = allVisits.reduce((acc: any, v) => {
@@ -112,6 +124,73 @@ export const Dashboard = ({ branchId }: { branchId?: string }) => {
 
         setStats(prev => ({ ...prev, retentionRate }));
       }
+
+      // 7. Calculate Real Trends (Compare today vs yesterday)
+      const yesterday = new Date(today);
+      yesterday.setDate(today.getDate() - 1);
+      const yesterdayISO = yesterday.toISOString();
+
+      const { data: sessionsYesterday } = await supabase
+        .from('workspace_sessions')
+        .select('total_amount')
+        .eq('status', 'completed')
+        .gte('created_at', yesterdayISO)
+        .lt('created_at', todayISO);
+
+      const yesterdayRevenue = sessionsYesterday?.reduce((acc, v) => acc + (Number(v.total_amount) || 0), 0) || 0;
+      const revenueTrend = yesterdayRevenue > 0 ? Math.round(((dailyRevenue - yesterdayRevenue) / yesterdayRevenue) * 100) : 0;
+
+      // 8. Calculate Subscription Trend
+      const { count: subsPrevMonth } = await supabase
+        .from('subscriptions')
+        .select('*', { count: 'exact', head: true })
+        .eq('branch_id', branchId)
+        .lt('created_at', todayISO); 
+        
+      const subscriptionTrend = subsPrevMonth && subsPrevMonth > 0 ? Math.round(((totalSubscriptions - subsPrevMonth) / subsPrevMonth) * 100) : 0;
+
+      // 9. Members Trend
+      const { count: membersYesterday } = await supabase
+        .from('customers')
+        .select('*', { count: 'exact', head: true })
+        .eq('home_branch_id', branchId)
+        .gte('created_at', yesterdayISO)
+        .lt('created_at', todayISO);
+      
+      const membersTrend = membersYesterday && membersYesterday > 0 ? Math.round(((newMembersToday - membersYesterday) / membersYesterday) * 100) : (newMembersToday > 0 ? 100 : 0);
+
+      // 10. Fetch Last 7 Days Revenue
+      const last7Days = Array.from({ length: 7 }, (_, i) => {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        d.setHours(0, 0, 0, 0);
+        return d;
+      }).reverse();
+
+      const last7DaysRevenue = await Promise.all(last7Days.map(async (day) => {
+        const nextDay = new Date(day);
+        nextDay.setDate(day.getDate() + 1);
+        
+        const { data: daySess } = await supabase
+          .from('workspace_sessions')
+          .select('total_amount')
+          .eq('status', 'completed')
+          .gte('created_at', day.toISOString())
+          .lt('created_at', nextDay.toISOString());
+          
+        return {
+          date: day.toLocaleDateString('ar-EG', { weekday: 'short' }),
+          amount: daySess?.reduce((acc, v) => acc + (Number(v.total_amount) || 0), 0) || 0
+        };
+      }));
+
+      setStats(prev => ({ 
+        ...prev, 
+        revenueTrend,
+        subscriptionTrend,
+        membersTrend,
+        dailyRevenueHistory: last7DaysRevenue
+      }));
 
     } catch (error: any) {
       console.error('Error fetching dashboard stats:', error);
@@ -138,10 +217,10 @@ export const Dashboard = ({ branchId }: { branchId?: string }) => {
         {loading && (
           <div className="absolute inset-0 bg-white/20 backdrop-blur-[1px] z-10 rounded-3xl" />
         )}
-        <StatCard title="الحضور الآن" value={stats.presentNow.toString()} icon={UserCheck} trend={12} />
-        <StatCard title="إيراد اليوم (EGP)" value={stats.dailyRevenue.toLocaleString()} icon={Wallet} trend={8} />
-        <StatCard title="إشغال الغرف" value={`${stats.roomOccupancy}%`} icon={Calendar} trend={-2} />
-        <StatCard title="أعضاء جدد" value={stats.newMembersToday.toString()} icon={Users} trend={15} />
+        <StatCard title="الحضور الآن" value={stats.presentNow.toString()} icon={UserCheck} />
+        <StatCard title="إيراد اليوم (EGP)" value={stats.dailyRevenue.toLocaleString()} icon={Wallet} trend={stats.revenueTrend} />
+        <StatCard title="إجمالي العملاء" value={stats.totalMembers.toLocaleString()} icon={Users} />
+        <StatCard title="أعضاء جدد" value={stats.newMembersToday.toString()} icon={Users} trend={stats.membersTrend} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -151,9 +230,32 @@ export const Dashboard = ({ branchId }: { branchId?: string }) => {
             <CardTitle>تحليلات الأداء</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="h-72 bg-white/40 rounded-[1.5rem] flex items-center justify-center border-2 border-dashed border-slate-200/50 relative overflow-hidden group/chart cursor-crosshair">
-              <div className="absolute inset-0 bg-indigo-500/5 translate-y-full group-hover/chart:translate-y-0 transition-transform duration-700 ease-out" />
-              <TrendingUp size={80} className="text-indigo-200 group-hover/chart:text-indigo-400 group-hover/chart:scale-110 transition-all duration-500" />
+            <div className="h-72 bg-white/40 rounded-[1.5rem] flex items-end justify-between px-8 py-10 border-2 border-dashed border-slate-200/50 relative overflow-hidden group/chart">
+              {stats.dailyRevenueHistory.length > 0 ? (
+                stats.dailyRevenueHistory.map((day, idx) => {
+                  const maxVal = Math.max(...stats.dailyRevenueHistory.map(d => d.amount), 1);
+                  const height = (day.amount / maxVal) * 100;
+                  return (
+                    <div key={idx} className="flex flex-col items-center gap-2 group/bar flex-1 h-full justify-end px-1">
+                      <div className="relative w-full flex justify-center group/tooltip">
+                        <div 
+                           className="w-full max-w-[40px] bg-gradient-to-t from-indigo-500 to-violet-400 rounded-t-xl transition-all duration-1000 hover:scale-x-110 shadow-lg"
+                           style={{ height: `${Math.max(5, height)}%` }}
+                        />
+                        <div className="absolute -top-10 scale-0 group-hover/tooltip:scale-100 transition-transform bg-slate-800 text-white text-[10px] py-1.5 px-3 rounded-lg font-black shadow-xl z-10 whitespace-nowrap">
+                          {day.amount} EGP
+                        </div>
+                      </div>
+                      <span className="text-[10px] font-black text-slate-400">{day.date}</span>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="flex-1 flex flex-col items-center justify-center opacity-30">
+                  <TrendingUp size={40} className="mb-2" />
+                  <p className="text-sm font-black">لا توجد بيانات كافية</p>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -169,7 +271,9 @@ export const Dashboard = ({ branchId }: { branchId?: string }) => {
               <p className="text-slate-500 font-bold text-xs mb-2">إجمالي الاشتراكات</p>
               <div className="flex items-end justify-between">
                 <span className="text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-slate-800 to-slate-500">{stats.totalSubscriptions}</span>
-                <span className="text-xs font-black text-emerald-600 bg-emerald-50 px-2.5 py-1.5 rounded-xl border border-emerald-100 shadow-sm transition-transform hover:scale-105 cursor-default">+12%</span>
+                <span className={`text-xs font-black ${stats.subscriptionTrend >= 0 ? 'text-emerald-600 bg-emerald-50 border-emerald-100' : 'text-rose-600 bg-rose-50 border-rose-100'} px-2.5 py-1.5 rounded-xl border shadow-sm transition-transform hover:scale-105 cursor-default`}>
+                  {stats.subscriptionTrend >= 0 ? '+' : ''}{stats.subscriptionTrend}%
+                </span>
               </div>
             </div>
 
@@ -202,8 +306,10 @@ export const Dashboard = ({ branchId }: { branchId?: string }) => {
               <div>
                 <p className="font-black text-slate-800 text-[15px]">معدل الحفاظ على العملاء</p>
                 <div className="flex items-center gap-1 mt-1.5">
-                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  <p className="text-xs text-slate-500 font-bold">أعلى من المعدل الطبيعي بـ 5%</p>
+                  <div className={`w-1.5 h-1.5 rounded-full ${stats.retentionRate > 50 ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
+                  <p className="text-xs text-slate-500 font-bold">
+                    {stats.retentionRate > 50 ? 'أداء ممتاز في الحفاظ على العملاء' : 'بحاجة لتحسين استبقاء العملاء'}
+                  </p>
                 </div>
               </div>
             </div>

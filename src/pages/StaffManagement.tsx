@@ -8,6 +8,8 @@ export const StaffManagement = ({ branchId }: { branchId?: string }) => {
   const [showAddModal, setShowAddModal] = useState(false);
   const [loading, setLoading] = useState(true);
   const [tasks, setTasks] = useState<any[]>([]);
+  const [alerts, setAlerts] = useState<any[]>([]);
+  const [performance, setPerformance] = useState(0);
 
   const [newTask, setNewTask] = useState({
     name: '',
@@ -19,6 +21,14 @@ export const StaffManagement = ({ branchId }: { branchId?: string }) => {
   useEffect(() => {
     if (branchId) {
       fetchTasks();
+      fetchAlerts();
+      
+      const channel = supabase.channel('staff_mgmt_realtime')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'branch_tasks' }, () => fetchTasks())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'branch_alerts' }, () => fetchAlerts())
+        .subscribe();
+        
+      return () => { supabase.removeChannel(channel); };
     }
   }, [branchId]);
 
@@ -32,11 +42,34 @@ export const StaffManagement = ({ branchId }: { branchId?: string }) => {
         .order('created_at', { ascending: true });
 
       if (error) throw error;
-      setTasks(data || []);
+      const tasksList = data || [];
+      setTasks(tasksList);
+      
+      // Calculate real performance
+      if (tasksList.length > 0) {
+        const done = tasksList.filter((t: any) => t.status === 'done').length;
+        setPerformance(Math.round((done / tasksList.length) * 100));
+      } else {
+        setPerformance(100);
+      }
     } catch (error) {
       console.error('Error fetching tasks:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchAlerts = async () => {
+    try {
+      const { data } = await (supabase as any)
+        .from('branch_alerts')
+        .select('*')
+        .eq('branch_id', branchId)
+        .eq('is_active', true)
+        .order('created_at', { ascending: false });
+      setAlerts(data || []);
+    } catch (error) {
+      console.error(error);
     }
   };
 
@@ -164,20 +197,30 @@ export const StaffManagement = ({ branchId }: { branchId?: string }) => {
 
         <div className="space-y-6">
           <Card className="bg-indigo-600 rounded-[2.5rem] p-8 text-white shadow-xl border-none">
-            <h4 className="font-black text-lg mb-4">أداء الموظفين</h4>
+            <h4 className="font-black text-lg mb-4">أداء الموظفين اليوم</h4>
             <div className="space-y-6">
-              <div className="flex justify-between text-xs font-bold opacity-80"><span>إنجاز المهام ({activeShift === 'day' ? 'النهار' : 'المساء'})</span><span>85%</span></div>
-              <div className="w-full h-2 bg-white/20 rounded-full overflow-hidden"><div className="h-full bg-white" style={{ width: '85%' }}></div></div>
-              <p className="text-[11px] leading-relaxed opacity-70 italic font-bold">"أداء ممتاز لموظفي الاستقبال اليوم في فرع Cloud، التزام كامل بجدول النظافة والتحصيل."</p>
+              <div className="flex justify-between text-xs font-bold opacity-80"><span>نسبة إنجاز المهام الكلية</span><span>{performance}%</span></div>
+              <div className="w-full h-2 bg-white/20 rounded-full overflow-hidden"><div className="h-full bg-white transition-all duration-1000" style={{ width: `${performance}%` }}></div></div>
+              <p className="text-[11px] font-bold opacity-70 italic leading-relaxed">
+                {performance >= 90 ? 'أداء ممتاز والتزام تام بجدول العمل.' : performance >= 70 ? 'أداء جيد، يرجى استكمال المهام المتبقية.' : 'يرجى التركيز على إنهاء المهام المطلوبة.'}
+              </p>
             </div>
           </Card>
           <div className="bg-white rounded-[2.5rem] border border-slate-100 p-8 shadow-sm">
             <h4 className="font-black text-slate-800 mb-4 flex items-center gap-2">
               <AlertCircle size={18} className="text-rose-500" />
-              تنبيهات عاجلة
+              تنبيهات الفرع
             </h4>
-            <div className="bg-rose-50 border border-rose-100 p-4 rounded-2xl">
-              <p className="text-xs font-bold text-rose-800 leading-relaxed">طابعة فرع Cloud تعاني من انخفاض الحبر، يرجى التغيير قبل الساعة 2:00 PM.</p>
+            <div className="space-y-4">
+              {alerts.length > 0 ? alerts.map(alert => (
+                <div key={alert.id} className={`p-4 rounded-2xl border ${alert.type === 'error' ? 'bg-rose-50 border-rose-100 text-rose-800' : alert.type === 'warning' ? 'bg-amber-50 border-amber-100 text-amber-800' : 'bg-blue-50 border-blue-100 text-blue-800'}`}>
+                  <p className="text-xs font-bold leading-relaxed">{alert.message}</p>
+                </div>
+              )) : (
+                <div className="p-4 bg-slate-50 border border-slate-100 rounded-2xl text-center">
+                  <p className="text-xs font-bold text-slate-400">لا توجد تنبيهات حالية</p>
+                </div>
+              )}
             </div>
           </div>
         </div>

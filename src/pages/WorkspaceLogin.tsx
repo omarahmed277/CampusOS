@@ -21,6 +21,24 @@ export const WorkspaceLogin = () => {
   const [error, setError] = useState('');
   const [session, setSession] = useState<any>(null);
   const [elapsedTime, setElapsedTime] = useState('00:00:00');
+  
+  const [college, setCollege] = useState('');
+  const [customCollege, setCustomCollege] = useState('');
+  const [showCustomCollege, setShowCustomCollege] = useState(false);
+
+  const colleges = [
+    'جامعة القاهرة',
+    'جامعة عين شمس',
+    'جامعة حلوان',
+    'جامعة المنيا',
+    'جامعة النيل',
+    'الجامعة الأمريكية بالقاهرة',
+    'الجامعة الألمانية بالقاهرة',
+    'جامعة المستقبل',
+    'جامعة أكتوبر للعلوم الحديثة والآداب (MSA)',
+    'جامعة مصر للعلوم والتكنولوجيا (MUST)',
+    'أخرى'
+  ];
 
   useEffect(() => {
     // Check if session ID is in local storage
@@ -101,15 +119,18 @@ export const WorkspaceLogin = () => {
     try {
       if (!fullName || !phoneNumber || !email) throw new Error('يرجى ملء جميع البيانات');
 
-      // Check if phone already exists
-      const { data: existingPhone } = await supabase
+      // Normalize phone number (strip spaces, leading +20 or 0)
+      const cleanPhone = phoneNumber.replace(/\s+/g, '').replace(/^(\+20|0)/, '');
+
+      // Check if phone or email already exists
+      const { data: existingUser } = await supabase
         .from('customers')
         .select('id')
-        .eq('phone', phoneNumber)
+        .or(`phone.ilike.%${cleanPhone},email.eq.${email}`)
         .maybeSingle();
 
-      if (existingPhone) {
-        throw new Error('رقم الهاتف مسجل بالفعل. يرجى تسجيل الدخول.');
+      if (existingUser) {
+        throw new Error('هذا المستخدم موجود بالفعل (رقم الهاتف أو البريد الإلكتروني مسجل)');
       }
 
       // Determine sequential code starting from A001
@@ -139,13 +160,16 @@ export const WorkspaceLogin = () => {
         }
       }
 
+      const finalCollege = showCustomCollege ? customCollege : college;
+
       const newCustomer = {
         full_name: fullName,
-        phone: phoneNumber,
+        phone: cleanPhone,
         email: email,
         code: generatedCode,
         gender: gender,
         birth_date: birthDate || null,
+        college: finalCollege || null,
         is_active: true
       };
 
@@ -157,6 +181,7 @@ export const WorkspaceLogin = () => {
 
       if (createError) throw createError;
 
+      /* 
       // Automatically send the welcome email
       try {
         const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-welcome-email`;
@@ -171,6 +196,7 @@ export const WorkspaceLogin = () => {
       } catch (emailErr) {
         console.error('Failed to send welcome email:', emailErr);
       }
+      */
 
       setUserCode(generatedCode);
       setIsSignUp(false);
@@ -211,13 +237,16 @@ export const WorkspaceLogin = () => {
     setError('');
 
     try {
+      // Normalize phone number for lookup
+      const cleanPhone = phoneNumber.replace(/\s+/g, '').replace(/^(\+20|0)/, '');
+
       // Find the customer
       const { data: customerData, error: customerError } = await supabase
         .from('customers')
         .select('id, full_name, code, phone')
-        .eq('code', userCode)
-        .eq('phone', phoneNumber)
-        .single();
+        .eq('code', userCode.trim().toUpperCase())
+        .ilike('phone', `%${cleanPhone}`)
+        .maybeSingle();
 
       if (customerError || !customerData) {
         throw new Error('بيانات المستخدم غير صحيحة، تأكد من كود العميل ورقم الهاتف.');
@@ -634,6 +663,37 @@ export const WorkspaceLogin = () => {
                 dir="ltr"
               />
             </div>
+
+            <div className="space-y-1.5">
+              <label className="text-sm font-bold text-slate-400 block ml-1">الجامعة / الكلية</label>
+              <select
+                value={college}
+                onChange={(e) => {
+                  setCollege(e.target.value);
+                  setShowCustomCollege(e.target.value === 'أخرى');
+                }}
+                className="w-full bg-[#0B0F19]/60 border border-white/10 rounded-2xl px-5 py-4 text-white font-bold focus:outline-none focus:border-[#1e75b9] focus:ring-1 focus:ring-[#1e75b9] transition-all"
+              >
+                <option value="">اختر الجامعة</option>
+                {colleges.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            </div>
+
+            {showCustomCollege && (
+              <div className="space-y-1.5 animate-in slide-in-from-top-2 duration-300">
+                <label className="text-sm font-bold text-[#f78c2a] block ml-1">اسم الجامعة الأخرى</label>
+                <input
+                  type="text"
+                  required
+                  value={customCollege}
+                  onChange={(e) => setCustomCollege(e.target.value)}
+                  className="w-full bg-[#0B0F19]/60 border border-[#f78c2a]/30 rounded-2xl px-5 py-4 text-white font-bold focus:outline-none focus:border-[#f78c2a] focus:ring-1 focus:ring-[#f78c2a] transition-all"
+                  placeholder="اكتب اسم الجامعة هنا..."
+                />
+              </div>
+            )}
 
             <div className="space-y-1.5">
               <label className="text-sm font-bold text-slate-400 block ml-1">النوع</label>

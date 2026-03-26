@@ -5,7 +5,7 @@ import {
   ArrowUpRight, DollarSign, Calendar, ChevronRight,
   ChevronLeft, Plus, Save, Calculator, CheckCircle2,
   AlertCircle, Receipt, Printer, X, Wallet, ArrowRightLeft,
-  ChevronUp, ChevronDown, Lock
+  ChevronUp, ChevronDown, Lock, Edit
 } from 'lucide-react';
 import { StatCard } from '../components/StatCard';
 import { Button, Card, CardHeader, CardTitle, CardDescription, CardContent, Input } from '../components/ui';
@@ -22,12 +22,18 @@ export const FinancePanel = ({ branchId }: { branchId?: string }) => {
   });
   const [monthlyData, setMonthlyData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [financeSummary, setFinanceSummary] = useState({
+    total_in: 0,
+    total_out: 0,
+    total_cash: 0,
+    cash_cloud: 0,
+    cash_athar: 0
+  });
+  const [editingSummary, setEditingSummary] = useState(false);
+  const [summaryForm, setSummaryForm] = useState({ ...financeSummary });
 
-  // Petty Cash (العهدة) State
-  const [pettyTransactions, setPettyTransactions] = useState<Array<{ type: 'add' | 'withdraw', amount: number, note: string, date: string }>>([
-    { type: 'add', amount: 5000, note: 'رصيد أول الشهر', date: '2024-10-01' },
-    { type: 'withdraw', amount: 1200, note: 'شراء ورق طباعة وأدوات مكتبية', date: '2024-10-05' }
-  ]);
+  // Real Petty Cash Database State
+  const [pettyTransactions, setPettyTransactions] = useState<any[]>([]);
 
   // Modal States
   const [showPettyModal, setShowPettyModal] = useState<'add' | 'withdraw' | null>(null);
@@ -35,12 +41,10 @@ export const FinancePanel = ({ branchId }: { branchId?: string }) => {
   const [pettyActionValue, setPettyActionValue] = useState('');
   const [pettyNote, setPettyNote] = useState('');
   const [rolloverOption, setRolloverOption] = useState<'rollover' | 'settle'>('rollover');
+  const [notification, setNotification] = useState<string | null>(null);
 
-  // Closed Months "Database" (Simulation)
-  const [closedMonths, setClosedMonths] = useState<{ [key: string]: any }>({
-    '2024-09': { income: 145000, expense: 92000, net: 53000 },
-    '2024-08': { income: 132000, expense: 88000, net: 44000 }
-  });
+  // Closed Months "Database" (Real Integration)
+  const [closedMonths, setClosedMonths] = useState<{ [key: string]: any }>({});
 
   // Cash Drawer State
   const [cashDrawer, setCashDrawer] = useState<{ [key: number]: string }>({
@@ -52,25 +56,102 @@ export const FinancePanel = ({ branchId }: { branchId?: string }) => {
   // Calculations
   const pettyCashStats = useMemo(() => {
     return pettyTransactions.reduce((acc, curr) => {
-      if (curr.type === 'add') acc.added += curr.amount;
-      else acc.withdrawn += curr.amount;
+      if (curr.type === 'add') acc.added += Number(curr.amount);
+      else acc.withdrawn += Number(curr.amount);
       return acc;
     }, { added: 0, withdrawn: 0 });
   }, [pettyTransactions]);
 
   useEffect(() => {
     if (branchId) {
-      if (activeTab === 'daily') fetchDailyFinance();
-      else if (activeTab === 'monthly') fetchMonthlyFinance();
+      fetchData();
+      
+      const channel = supabase.channel('finance_realtime')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'petty_cash' }, () => fetchPettyTransactions())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'monthly_closings' }, () => fetchClosedMonths())
+        .subscribe();
+        
+      return () => { supabase.removeChannel(channel); };
     }
   }, [branchId, currentDate, activeTab, viewDate]);
 
-  const fetchDailyFinance = async () => {
+  const fetchData = async () => {
     setLoading(true);
+    await Promise.all([
+      fetchDailyFinance(),
+      fetchPettyTransactions(),
+      fetchClosedMonths(),
+      fetchFinanceSummary()
+    ]);
+    setLoading(false);
+  };
+
+  const fetchFinanceSummary = async () => {
+    if (!branchId) return;
+    const { data, error } = await (supabase as any)
+      .from('finance_summary')
+      .select('*')
+      .eq('branch_id', branchId)
+      .maybeSingle();
+      
+    if (data) {
+      setFinanceSummary(data);
+      setSummaryForm(data);
+    }
+  };
+
+  const saveFinanceSummary = async () => {
+    try {
+      setLoading(true);
+      const { error } = await (supabase as any)
+        .from('finance_summary')
+        .upsert({
+          branch_id: branchId,
+          ...summaryForm,
+          updated_at: new Date().toISOString()
+        });
+      
+      if (error) throw error;
+      setFinanceSummary(summaryForm);
+      setEditingSummary(false);
+      showNotification('تم حفظ ملخص الخزينة بنجاح');
+    } catch (err: any) {
+      alert('خطأ في الحفظ: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+  const fetchPettyTransactions = async () => {
+    if (!branchId) return;
+    const { data } = await (supabase as any)
+      .from('petty_cash')
+      .select('*')
+      .eq('branch_id', branchId)
+      .order('created_at', { ascending: false });
+    setPettyTransactions(data || []);
+  };
+
+  const fetchClosedMonths = async () => {
+    if (!branchId) return;
+    const { data } = await (supabase as any)
+      .from('monthly_closings')
+      .select('*')
+      .eq('branch_id', branchId);
+
+    if (data) {
+      const monthMap = data.reduce((acc: any, m: any) => {
+        acc[m.month_key] = { income: m.total_income, expense: m.total_expense, net: m.net_profit };
+        return acc;
+      }, {});
+      setClosedMonths(monthMap);
+    }
+  };
+
+  const fetchDailyFinance = async () => {
     const dateStr = currentDate.toISOString().split('T')[0];
 
     try {
-      // 1. Fetch Workspace Sessions Income (Completed ones usually have total_amount)
+      // 1. Fetch Workspace Sessions Income
       const { data: sessions } = await supabase
         .from('workspace_sessions')
         .select('total_amount, catering_amount')
@@ -82,6 +163,7 @@ export const FinancePanel = ({ branchId }: { branchId?: string }) => {
       const { data: subs } = await supabase
         .from('subscriptions')
         .select('price')
+        .eq('branch_id', branchId)
         .gte('created_at', `${dateStr}T00:00:00`)
         .lte('created_at', `${dateStr}T23:59:59`);
 
@@ -89,20 +171,20 @@ export const FinancePanel = ({ branchId }: { branchId?: string }) => {
       const { data: expenses } = await supabase
         .from('expenses')
         .select('amount')
+        .eq('branch_id', branchId)
         .eq('date', dateStr);
 
       let workspace = 0, catering = 0;
       sessions?.forEach(s => {
         const cat = s.catering_amount || 0;
         const total = s.total_amount || 0;
-        catering += cat;
-        // Workspace is total minus catering
-        workspace += (total - cat);
+        catering += Number(cat);
+        workspace += (Number(total) - Number(cat));
       });
 
-      const subIncome = subs?.reduce((s, b) => s + (b.price || 0), 0) || 0;
+      const subIncome = subs?.reduce((s, b) => s + (Number(b.price) || 0), 0) || 0;
       const totalIncome = workspace + catering + subIncome;
-      const totalExpense = expenses?.reduce((s, e) => s + (e.amount || 0), 0) || 0;
+      const totalExpense = expenses?.reduce((s, e) => s + (Number(e.amount) || 0), 0) || 0;
 
       setDailyData({
         income: totalIncome,
@@ -111,8 +193,6 @@ export const FinancePanel = ({ branchId }: { branchId?: string }) => {
       });
     } catch (err) {
       console.error(err);
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -173,52 +253,85 @@ export const FinancePanel = ({ branchId }: { branchId?: string }) => {
     return sum + (count * den);
   }, 0);
 
-  // The expected cash in drawer = total daily income - total daily expenses + (petty cash added - petty cash withdrawn)
-  // Plus any starting cash if applicable (assuming petty cash added acts as starting cash for now)
   const expectedCash = dailyData.income - dailyData.expense + (pettyCashStats.added - pettyCashStats.withdrawn);
   const cashDiff = totalCountedCash - expectedCash;
+
+  const showNotification = (msg: string) => {
+    setNotification(msg);
+    setTimeout(() => setNotification(null), 3000);
+  };
+
+  const handlePettyAction = async () => {
+    const val = parseFloat(pettyActionValue);
+    if (!isNaN(val)) {
+      try {
+        const { error } = await (supabase as any).from('petty_cash').insert({
+          branch_id: branchId,
+          type: showPettyModal as 'add' | 'withdraw',
+          amount: val,
+          note: pettyNote || (showPettyModal === 'add' ? 'إضافة عهدة' : 'سحب عهدة'),
+          date: new Date().toISOString().split('T')[0]
+        });
+
+        if (error) throw error;
+        showNotification('تمت تسجيل حركة العهدة');
+        setShowPettyModal(null);
+        setPettyActionValue('');
+        setPettyNote('');
+        fetchPettyTransactions();
+      } catch (err: any) {
+        alert(err.message);
+      }
+    }
+  };
+
+  const handleSaveDay = async () => {
+    try {
+      const { error } = await (supabase as any).from('daily_closings').insert({
+        branch_id: branchId,
+        date: currentDate.toISOString().split('T')[0],
+        expected_cash: expectedCash,
+        actual_cash: totalCountedCash,
+        difference: cashDiff,
+        denominations: cashDrawer
+      });
+
+      if (error) throw error;
+      showNotification('تم حفظ جرد اليوم وإقفال الصندوق بنجاح');
+    } catch (err: any) {
+      alert('خطأ في الحفظ: ' + err.message);
+    }
+  };
+
+  const handleCloseMonth = async () => {
+    const monthKey = viewDate.toISOString().slice(0, 7);
+    const m_income = dailyData.income + pettyCashStats.added;
+    const m_expense = dailyData.expense + pettyCashStats.withdrawn;
+
+    try {
+      const { error } = await (supabase as any).from('monthly_closings').upsert({
+        branch_id: branchId,
+        month_key: monthKey,
+        total_income: m_income,
+        total_expense: m_expense,
+        net_profit: m_income - m_expense
+      });
+
+      if (error) throw error;
+      
+      showNotification(`تم تقفيل شهر ${monthKey} بنجاح`);
+      setShowCloseMonthModal(false);
+      fetchClosedMonths();
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
 
   const getDiffColor = () => {
     if (cashDiff === 0 && totalCountedCash > 0) return 'text-emerald-600 bg-emerald-50 border-emerald-200';
     if (cashDiff < 0) return 'text-rose-600 bg-rose-50 border-rose-200';
     if (cashDiff > 0) return 'text-amber-600 bg-amber-50 border-amber-200';
     return 'text-slate-400 bg-slate-50 border-slate-100';
-  };
-
-  const handlePettyAction = () => {
-    const val = parseFloat(pettyActionValue);
-    if (!isNaN(val)) {
-      setPettyTransactions(prev => [
-        ...prev,
-        {
-          type: showPettyModal as 'add' | 'withdraw',
-          amount: val,
-          note: pettyNote || (showPettyModal === 'add' ? 'إضافة عهدة' : 'سحب عهدة'),
-          date: new Date().toISOString().split('T')[0]
-        }
-      ]);
-    }
-    setShowPettyModal(null);
-    setPettyActionValue('');
-    setPettyNote('');
-  };
-
-  const handleCloseMonth = () => {
-    const monthKey = viewDate.toISOString().slice(0, 7);
-    const m_income = dailyData.income + pettyCashStats.added;
-    const m_expense = dailyData.expense + pettyCashStats.withdrawn;
-
-    setClosedMonths({
-      ...closedMonths,
-      [monthKey]: { income: m_income, expense: m_expense, net: m_income - m_expense }
-    });
-
-    if (rolloverOption === 'settle') {
-      setPettyTransactions([]);
-    }
-    setShowCloseMonthModal(false);
-    // Move to next month simulation
-    setViewDate(new Date(viewDate.setMonth(viewDate.getMonth() + 1)));
   };
 
   const renderDaily = () => (
@@ -276,7 +389,7 @@ export const FinancePanel = ({ branchId }: { branchId?: string }) => {
                   <p className="text-2xl font-black">{expectedCash.toLocaleString()} EGP</p>
                 </div>
               </div>
-              <Button size="lg" className="bg-white text-slate-900 hover:bg-slate-100 rounded-2xl gap-2 font-black">
+              <Button onClick={handleSaveDay} size="lg" className="bg-white text-slate-900 hover:bg-slate-100 rounded-2xl gap-2 font-black">
                 <Save size={18} /> حفظ وإقفال اليوم
               </Button>
             </div>
@@ -299,7 +412,7 @@ export const FinancePanel = ({ branchId }: { branchId?: string }) => {
                   <span className="font-black text-slate-800">{cat.amount.toLocaleString()} ج.م</span>
                 </div>
                 <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
-                  <div className={`h-full ${cat.color} rounded-full`} style={{ width: `${(cat.amount / dailyData.income) * 100}%` }} />
+                  <div className={`h-full ${cat.color} rounded-full`} style={{ width: `${(cat.amount / (dailyData.income || 1)) * 100}%` }} />
                 </div>
               </div>
             ))}
@@ -310,6 +423,79 @@ export const FinancePanel = ({ branchId }: { branchId?: string }) => {
           </CardContent>
         </Card>
       </div>
+
+      {/* Treasury Summary Section */}
+      <Card className="border-none shadow-xl shadow-slate-100 overflow-hidden mt-8">
+        <CardHeader className="flex flex-row items-center justify-between pb-6">
+          <div className="flex items-center gap-3">
+            <div className="p-3 bg-indigo-600 text-white rounded-2xl shadow-lg">
+              <Wallet size={20} />
+            </div>
+            <CardTitle className="text-xl font-black">ملخص الخزينة (Cloud / Athar)</CardTitle>
+          </div>
+          {!editingSummary ? (
+            <Button onClick={() => setEditingSummary(true)} variant="outline" className="rounded-xl font-black gap-2 border-slate-200">
+              <Edit size={16} /> تعديل البيانات
+            </Button>
+          ) : (
+            <div className="flex gap-2">
+              <Button onClick={() => setEditingSummary(false)} variant="ghost" className="rounded-xl font-black text-slate-400">إلغاء</Button>
+              <Button onClick={saveFinanceSummary} className="rounded-xl font-black gap-2 bg-indigo-600 text-white">
+                <CheckCircle2 size={16} /> حفظ التغييرات
+              </Button>
+            </div>
+          )}
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6">
+            {(['total_in', 'total_out', 'total_cash', 'cash_cloud', 'cash_athar'] as const).map((key) => {
+              const labels: Record<string, string> = {
+                total_in: 'إجمالي الداخل',
+                total_out: 'إجمالي الخارج',
+                total_cash: 'إجمالي الكاش',
+                cash_cloud: 'كاش Cloud',
+                cash_athar: 'كاش Athar'
+              };
+              const colors: Record<string, string> = {
+                total_in: 'text-emerald-600',
+                total_out: 'text-rose-600',
+                total_cash: 'text-indigo-600',
+                cash_cloud: 'text-sky-600',
+                cash_athar: 'text-amber-600'
+              };
+              const Icons: Record<string, any> = {
+                total_in: TrendingUp,
+                total_out: TrendingDown,
+                total_cash: Wallet,
+                cash_cloud: PieChart,
+                cash_athar: BarChart3
+              };
+              const Icon = Icons[key];
+
+              return (
+                <div key={key} className="p-6 bg-slate-50 border border-slate-100 rounded-[2rem] group hover:border-indigo-300 transition-all">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Icon size={14} className="text-slate-400" />
+                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{labels[key]}</label>
+                  </div>
+                  {!editingSummary ? (
+                    <p className={`text-2xl font-black ${colors[key]}`}>
+                      {Number(financeSummary[key as keyof typeof financeSummary] || 0).toLocaleString()} <span className="text-xs opacity-60">ج.م</span>
+                    </p>
+                  ) : (
+                    <Input
+                      type="number"
+                      value={summaryForm[key as keyof typeof summaryForm]}
+                      onChange={(e) => setSummaryForm({ ...summaryForm, [key]: parseFloat(e.target.value) || 0 })}
+                      className="text-xl font-black border-none bg-white/50 rounded-xl focus-visible:ring-indigo-400 h-14 text-center"
+                    />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 
