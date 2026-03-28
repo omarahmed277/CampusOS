@@ -6,11 +6,11 @@ import { supabase } from '../lib/supabase';
 type activeTabType = 'session' | 'catering' | 'about' | 'how_work';
 
 export const WorkspaceLogin = () => {
-  const [activeTab, setActiveTab] = useState<activeTabType>('session');
+  const [branches, setBranches] = useState<any[]>([]);
   const [cateringItems, setCateringItems] = useState<any[]>([]);
+  const [cart, setCart] = useState<{ [id: string]: { item: any, quantity: number } }>({});
   const [orderLoading, setOrderLoading] = useState(false);
-
-  const [isSignUp, setIsSignUp] = useState(false);
+  const [activeTab, setActiveTab] = useState<activeTabType>('session');
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [gender, setGender] = useState('male');
@@ -20,10 +20,10 @@ export const WorkspaceLogin = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [session, setSession] = useState<any>(null);
+  const [finalBill, setFinalBill] = useState<any>(null);
   const [elapsedTime, setElapsedTime] = useState('00:00:00');
-  
+  const [isSignUp, setIsSignUp] = useState(false);
   const [branchId, setBranchId] = useState<string | null>(localStorage.getItem('workspace_branch_id'));
-  const [branches, setBranches] = useState<any[]>([]);
 
   const [college, setCollege] = useState('');
   const [customCollege, setCustomCollege] = useState('');
@@ -67,42 +67,121 @@ export const WorkspaceLogin = () => {
 
   const fetchStoreItems = async () => {
     try {
+      // Fetch from shop_products which is synced with inventory
       const { data } = await supabase
-        .from('inventory')
-        .select('*')
-        .gt('price', 0);
-      setCateringItems(data || []);
+        .from('shop_products' as any)
+        .select(`*, inventory(stock, unit)`)
+        .eq('is_available', true);
+      
+      if (data) {
+        setCateringItems(data);
+      } else {
+        // Fallback to direct inventory if shop_products doesn't exist yet
+        const { data: invData } = await supabase
+            .from('inventory')
+            .select('*')
+            .gt('price', 0);
+        setCateringItems(invData || []);
+      }
     } catch (err) {
       console.error(err);
     }
   };
 
-  const handleOrder = async (item: any) => {
+  const addToCart = (item: any) => {
+    setCart(prev => {
+        const id = item.id;
+        const existing = prev[id] || { item, quantity: 0 };
+        return { ...prev, [id]: { ...existing, quantity: existing.quantity + 1 } };
+    });
+  };
+
+  const removeFromCart = (itemId: string) => {
+    setCart(prev => {
+        const newCart = { ...prev };
+        if (newCart[itemId].quantity > 1) {
+            newCart[itemId].quantity -= 1;
+        } else {
+            delete newCart[itemId];
+        }
+        return newCart;
+    });
+  };
+
+  const handleCheckoutCart = async () => {
+    if (Object.keys(cart).length === 0) return;
     setOrderLoading(true);
     try {
+      const cartEntries = Object.values(cart) as any[];
+      const subtotal = cartEntries.reduce((sum, entry) => sum + (entry.item.price * entry.quantity), 0);
+      
+      // 1. Attempt to create structured order records (if tables exist)
+      try {
+          const { data: order, error: orderErr } = await (supabase as any)
+            .from('orders')
+            .insert({
+                customer_id: session.customer_id,
+                session_id: session.id,
+                total_price: subtotal,
+                branch_id: branchId
+            })
+            .select()
+            .single();
+            
+          if (!orderErr && order) {
+              // 2. Insert Order Items (Structured)
+              for (const entry of cartEntries) {
+                  await (supabase as any)
+                    .from('order_items')
+                    .insert({
+                        order_id: order.id,
+                        product_id: entry.item.id,
+                        quantity: entry.quantity,
+                        price_at_purchase: entry.item.price
+                    });
+              }
+          }
+      } catch (tableErr) {
+          console.warn("Structured order tables (orders/order_items) not found. Falling back to JSON storage.");
+      }
+
+      // 3. Deduct Inventory (Always works if inventory table exists)
+      for (const entry of cartEntries) {
+          const invId = entry.item.inventory_id || entry.item.id;
+          const currentStock = entry.item.inventory?.stock || entry.item.stock || 5;
+          await (supabase as any)
+            .from('inventory')
+            .update({ stock: currentStock - entry.quantity })
+            .eq('id', invId);
+      }
+
+      // 4. Update Session JSON for legacy compatibility and reliable billing
       const currentOrders = Array.isArray(session.orders) ? session.orders : [];
       const currentCateringAmount = Number(session.catering_amount) || 0;
       
-      const newOrders = [...currentOrders, {
-        id: item.id,
-        name: item.name,
-        price: item.price,
-        quantity: 1,
+      const newOrders = [...currentOrders, ...cartEntries.map(e => ({
+        id: e.item.id,
+        name: e.item.name,
+        price: e.item.price,
+        quantity: e.quantity,
         time: new Date().toISOString()
-      }];
+      }))];
       
-      const newAmount = currentCateringAmount + Number(item.price);
+      const newAmount = currentCateringAmount + subtotal;
       
-      const { error } = await supabase
+      const { error: sessionErr } = await (supabase as any)
         .from('workspace_sessions')
         .update({ orders: newOrders, catering_amount: newAmount })
         .eq('id', session.id);
         
-      if (error) throw error;
+      if (sessionErr) throw sessionErr;
+
       setSession({...session, orders: newOrders, catering_amount: newAmount});
-      alert(`تم إضافة ${item.name} لحسابك.`);
+      setCart({});
+      alert("تمت عملية الشراء بنجاح!");
     } catch (err: any) {
-      alert("حدث خطأ أثناء إضافة الطلب");
+      console.error(err);
+      alert("حدث خطأ أثناء إتمام الطلب: " + err.message);
     } finally {
       setOrderLoading(false);
     }
@@ -356,6 +435,11 @@ export const WorkspaceLogin = () => {
             const newData = payload.new;
             if (newData.status === 'completed') {
                localStorage.removeItem('workspace_session_id');
+               setFinalBill({
+                 ...prev,
+                 ...newData
+               });
+               return null; 
             }
             return {
               ...prev,
@@ -505,43 +589,77 @@ export const WorkspaceLogin = () => {
           {activeTab === 'catering' && (
             <div className="w-full max-w-lg mx-auto space-y-4 animate-in fade-in duration-300">
                 <h2 className="text-xl font-black text-white mb-6 text-center">متجر المساحة</h2>
-                {cateringItems.length > 0 ? cateringItems.map(item => (
-                    <div key={item.id} className="bg-[#0B0F19]/60 backdrop-blur-md border border-white/5 hover:border-[#f78c2a]/50 transition-colors p-4 rounded-2xl flex justify-between items-center group shadow-lg">
-                      <div className="text-right flex-1">
-                          <p className="font-black text-white text-lg group-hover:text-[#f78c2a] transition-colors line-clamp-1 truncate ml-2" title={item.name}>{item.name}</p>
-                          <p className="text-[10px] text-slate-500 font-bold mb-1">{item.category}</p>
-                          <p className="text-[#1ed788] font-black">{item.price} EGP</p>
-                      </div>
-                      <button 
-                        onClick={() => handleOrder(item)} 
-                        disabled={orderLoading || session.status === 'checkout_requested'} 
-                        className="bg-white/10 hover:bg-[#f78c2a] shrink-0 disabled:opacity-50 text-white px-5 py-2.5 rounded-xl font-bold transition-all shadow-md active:scale-95"
-                      >
-                          شراء
-                      </button>
-                    </div>
-                )) : (
-                    <div className="py-12 flex flex-col items-center justify-center text-slate-400 bg-[#0B0F19]/60 border border-white/5 rounded-3xl">
-                      <ShoppingBag size={48} className="text-slate-600 mb-4 opacity-50" />
-                      <p className="font-bold">القائمة غير متاحة حالياً</p>
-                    </div>
+                
+                {/* Cart Summary Header */}
+                {Object.keys(cart).length > 0 && (
+                   <div className="bg-indigo-600/20 backdrop-blur-md border border-indigo-500/30 p-4 rounded-2xl flex justify-between items-center mb-6 animate-in slide-in-from-top-4">
+                     <div className="text-right">
+                       <p className="text-indigo-400 font-bold text-xs">سلة المشتريات</p>
+                       <p className="text-white font-black">{Object.values(cart).reduce((s, e) => s + (e as any).quantity, 0)} أصناف</p>
+                     </div>
+                     <button 
+                       onClick={handleCheckoutCart}
+                       disabled={orderLoading}
+                       className="bg-indigo-600 text-white px-6 py-2 rounded-xl font-bold shadow-lg shadow-indigo-600/20 hover:bg-indigo-500 transition-all flex items-center gap-2"
+                     >
+                       {orderLoading ? 'جاري...' : 'إتمام الطلب'}
+                       <CheckCircle2 size={18} />
+                     </button>
+                   </div>
                 )}
+
+                <div className="grid grid-cols-1 gap-3">
+                  {cateringItems.length > 0 ? cateringItems.map(item => {
+                      const cartEntry = cart[item.id];
+                      return (
+                        <div key={item.id} className="bg-[#0B0F19]/60 backdrop-blur-md border border-white/5 hover:border-indigo-500/50 transition-colors p-4 rounded-2xl flex justify-between items-center group shadow-lg">
+                          <div className="text-right flex-1">
+                              <p className="font-black text-white text-lg group-hover:text-indigo-400 transition-colors line-clamp-1 truncate ml-2" title={item.name}>{item.name}</p>
+                              <div className="flex items-center gap-2 mt-0.5">
+                                <p className="text-[#1ed788] font-black">{item.price} EGP</p>
+                                <span className="text-[10px] text-slate-500 font-bold">| متوفر: {item.inventory?.stock || item.stock || 0}</span>
+                              </div>
+                          </div>
+                          
+                          <div className="flex items-center gap-2 bg-white/5 p-1 rounded-xl">
+                            {cartEntry && (
+                              <>
+                                <button onClick={() => removeFromCart(item.id)} className="w-8 h-8 rounded-lg bg-rose-500/20 text-rose-500 flex items-center justify-center font-black">-</button>
+                                <span className="w-6 text-center text-white font-black">{cartEntry.quantity}</span>
+                              </>
+                            )}
+                            <button onClick={() => addToCart(item)} className="w-8 h-8 rounded-lg bg-indigo-500/20 text-indigo-400 flex items-center justify-center font-black hover:bg-indigo-500 hover:text-white transition-all">+</button>
+                          </div>
+                        </div>
+                      );
+                  }) : (
+                      <div className="py-12 flex flex-col items-center justify-center text-slate-400 bg-[#0B0F19]/60 border border-white/5 rounded-3xl">
+                        <ShoppingBag size={48} className="text-slate-600 mb-4 opacity-50" />
+                        <p className="font-bold">القائمة غير متاحة حالياً</p>
+                      </div>
+                  )}
+                </div>
                 
                 {session.orders?.length > 0 && (
-                    <div className="mt-8 pt-6 border-t border-white/10 text-right">
-                      <div className="bg-[#f78c2a]/10 backdrop-blur-md border border-[#f78c2a]/20 p-5 rounded-3xl shadow-[0_0_30px_rgba(247,140,42,0.1)]">
-                        <h3 className="font-black text-[#f78c2a] mb-5 flex gap-2 items-center">
-                          <Coffee size={18}/> مشترياتي ({session.catering_amount || 0} EGP)
+                    <div className="mt-12 pt-8 border-t border-white/10 text-right">
+                        <h3 className="font-black text-indigo-400 mb-5 flex gap-2 items-center text-lg">
+                           <Coffee size={24}/> سجل مشتريات الجلسة
                         </h3>
                         <div className="space-y-3">
                             {session.orders.map((o: any, idx: number) => (
-                                <div key={idx} className="flex justify-between items-center text-sm font-bold text-slate-300 bg-black/40 px-4 py-3 rounded-xl border border-white/5">
-                                  <span>{o.name}</span>
-                                  <span className="text-white">{o.price} EGP</span>
+                                <div key={idx} className="flex justify-between items-center text-sm font-bold text-slate-300 bg-white/5 px-5 py-4 rounded-2xl border border-white/5 group hover:bg-white/10 transition-colors">
+                                  <div className="flex items-center gap-3">
+                                    <span className="w-8 h-8 rounded-lg bg-indigo-500/10 text-indigo-400 flex items-center justify-center text-xs">{o.quantity}x</span>
+                                    <span>{o.name}</span>
+                                  </div>
+                                  <span className="text-white font-black">{(o.price * o.quantity).toLocaleString()} EGP</span>
                                 </div>
                             ))}
+                            <div className="pt-4 border-t border-white/5 flex justify-between items-center text-lg font-black text-[#1ed788]">
+                                <span>إجمالي الكافيتريا</span>
+                                <span>{session.catering_amount || 0} EGP</span>
+                            </div>
                         </div>
-                      </div>
                     </div>
                 )}
             </div>
@@ -818,6 +936,73 @@ export const WorkspaceLogin = () => {
           </form>
         )}
       </div>
+      {finalBill && <FinalReceiptModal bill={finalBill} onClose={() => setFinalBill(null)} />}
     </div>
   );
 };
+
+// Internal component for the user receipt
+const FinalReceiptModal = ({ bill, onClose }: { bill: any, onClose: () => void }) => {
+    return (
+        <div className="fixed inset-0 bg-[#0B0F19]/90 backdrop-blur-2xl z-[500] flex items-center justify-center p-4 animate-in fade-in transition-all">
+          <div className="bg-white rounded-[3rem] p-10 max-w-md w-full shadow-2xl animate-in zoom-in-95 duration-500 overflow-hidden relative">
+            <div className="absolute top-0 left-0 w-full h-2 bg-emerald-500" />
+            
+            <div className="text-center mb-8">
+               <div className="w-20 h-20 bg-emerald-100/50 rounded-full flex items-center justify-center mx-auto mb-4 border border-emerald-100 shadow-sm">
+                  <CheckCircle2 size={40} className="text-emerald-600" />
+               </div>
+               <h2 className="text-3xl font-black text-slate-900 leading-tight">شكراً لزيارتك!</h2>
+               <p className="text-slate-400 font-bold text-sm mt-1 uppercase tracking-wider">Your Final Receipt</p>
+            </div>
+
+            <div className="space-y-6">
+              <div className="bg-slate-50/50 rounded-[2rem] p-6 space-y-4 border border-slate-100">
+                <div className="flex justify-between items-center text-sm font-black border-b border-slate-100 pb-3">
+                   <span className="text-slate-400">كود المستخدم</span>
+                   <span className="text-indigo-600 bg-white px-3 py-1 rounded-lg border border-indigo-50 shadow-sm">{bill.user_code}</span>
+                </div>
+                
+                <div className="space-y-2">
+                   <div className="flex justify-between items-center text-sm font-bold">
+                      <span className="text-slate-500">مدة الجلسة:</span>
+                      <span className="text-slate-900">{bill.total_minutes || 0} دقيقة</span>
+                   </div>
+                   <div className="flex justify-between items-center text-sm font-bold">
+                      <span className="text-slate-500">طلبات المتجر:</span>
+                      <span className="text-slate-900">{bill.catering_amount || 0} EGP</span>
+                   </div>
+                </div>
+
+                {bill.orders && bill.orders.length > 0 && (
+                  <div className="pt-4 mt-2 border-t border-dashed border-slate-200">
+                    <p className="text-[10px] font-black text-slate-400 mb-3 uppercase tracking-widest text-center">Breakdown</p>
+                    <div className="space-y-2 max-h-32 overflow-y-auto custom-scrollbar pr-1">
+                      {bill.orders.map((o: any, idx: number) => (
+                        <div key={idx} className="flex justify-between items-center text-xs font-black bg-white rounded-xl p-3 border border-slate-50">
+                          <span className="text-slate-600 truncate max-w-[120px]">{o.name} <span className="opacity-50">x{o.quantity}</span></span>
+                          <span className="text-slate-900 font-mono">{o.price} EGP</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="pt-6 mt-2 border-t border-slate-200 flex flex-col items-center gap-1">
+                   <span className="text-slate-400 text-[10px] font-black uppercase tracking-widest">Total Amount Paid</span>
+                   <p className="text-5xl font-black text-slate-900 tracking-tighter">{bill.total_amount} <span className="text-sm opacity-30 mt-1">EGP</span></p>
+                </div>
+              </div>
+
+              <button
+                onClick={onClose}
+                className="w-full bg-[#1e75b9] hover:bg-[#155a96] text-white rounded-[2rem] py-5 font-black text-lg transition-all shadow-xl shadow-[#1e75b9]/20 flex items-center justify-center gap-3"
+              >
+                إنهاء الجلسة والعودة
+              </button>
+            </div>
+          </div>
+        </div>
+    );
+};
+

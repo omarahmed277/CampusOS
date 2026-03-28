@@ -77,9 +77,24 @@ export const ExpensesPanel = ({ branchId }: { branchId?: string }) => {
                 if (existing) {
                     await supabase
                         .from('inventory')
-                        .update({ stock: (existing.stock || 0) + parseFloat(item.qty), last_restock: newExpense.date })
+                        .update({ 
+                            stock: (existing.stock || 0) + parseFloat(item.qty), 
+                            last_restock: newExpense.date,
+                            price: parseFloat(item.price) // Assume selling price is input here or calculated
+                        })
                         .eq('id', existing.id);
                         
+                    // Update/Create in shop_products
+                    await (supabase as any)
+                        .from('shop_products')
+                        .upsert({
+                            inventory_id: existing.id,
+                            name: item.name,
+                            price: parseFloat(item.price) * 1.5, // 50% profit margin as default
+                            branch_id: branchId || null,
+                            is_available: true
+                        }, { onConflict: 'inventory_id' });
+
                     await supabase.from('inventory_logs').insert([{
                         branch_id: branchId || null,
                         inventory_id: existing.id,
@@ -93,7 +108,7 @@ export const ExpensesPanel = ({ branchId }: { branchId?: string }) => {
                             name: item.name,
                             category: 'مطبخ وبوفيه',
                             stock: parseFloat(item.qty),
-                            price: 0, // Default selling price
+                            price: parseFloat(item.price), 
                             min_stock: 5,
                             unit: item.unit,
                             last_restock: newExpense.date,
@@ -101,9 +116,20 @@ export const ExpensesPanel = ({ branchId }: { branchId?: string }) => {
                         }]).select().single();
                         
                     if (newInv) {
+                        // Create in shop_products
+                        await (supabase as any)
+                            .from('shop_products')
+                            .upsert({
+                                inventory_id: (newInv as any).id,
+                                name: item.name,
+                                price: parseFloat(item.price) * 1.5,
+                                branch_id: branchId || null,
+                                is_available: true
+                            }, { onConflict: 'inventory_id' });
+
                         await supabase.from('inventory_logs').insert([{
                             branch_id: branchId || null,
-                            inventory_id: newInv.id,
+                            inventory_id: (newInv as any).id,
                             type: 'Supply',
                             quantity: parseFloat(item.qty),
                             notes: newExpense.note

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Clock, CheckCircle2, AlertCircle, RefreshCw, X, Receipt, Users2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { calculateSessionPrice } from '../lib/pricing';
 
 interface Session {
   id: string;
@@ -19,6 +20,7 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
   const [loading, setLoading] = useState(true);
   const [now, setNow] = useState(Date.now());
   const [checkoutBill, setCheckoutBill] = useState<any>(null);
+  const [editingBill, setEditingBill] = useState<any>(null);
   const [manualCode, setManualCode] = useState('');
   const [startingSession, setStartingSession] = useState(false);
 
@@ -77,42 +79,85 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
     }
   };
 
-  const handleAcceptCheckout = async (session: Session) => {
-    try {
-      const endTime = new Date();
-      const startTime = new Date(session.start_time);
-      const diffMs = endTime.getTime() - startTime.getTime();
-      const diffMinutes = Math.max(1, Math.ceil(diffMs / 60000));
-      
-      const hourlyRate = 10;
-      let workspaceAmount = parseFloat(((diffMinutes / 60) * hourlyRate).toFixed(2));
-      if (workspaceAmount < 10) {
-        workspaceAmount = 10; // الحد الأدنى ساعة واحدة
-      }
-      const cateringAmount = session.catering_amount || 0;
-      const totalAmount = parseFloat((workspaceAmount + cateringAmount).toFixed(2));
+  const handlePrepareCheckout = (session: Session) => {
+    const endTime = new Date();
+    const startTime = new Date(session.start_time);
+    const diffMs = endTime.getTime() - startTime.getTime();
+    const diffMinutes = Math.max(1, Math.ceil(diffMs / 60000));
+    
+    
+    const workspaceAmount = calculateSessionPrice(diffMinutes);
+    
+    const orders = Array.isArray(session.orders) ? [...session.orders] : [];
+    const cateringAmount = orders.reduce((sum, o) => sum + (Number(o.price) * (Number(o.quantity) || 1)), 0);
+    const totalAmount = workspaceAmount + cateringAmount;
 
+    setEditingBill({
+      ...session,
+      orders,
+      workspaceAmount,
+      cateringAmount,
+      totalAmount,
+      diffMinutes,
+      endTime
+    });
+  };
+
+  const handleUpdateBillItem = (index: number, field: string, value: any) => {
+    if (!editingBill) return;
+    const newOrders = [...editingBill.orders];
+    newOrders[index] = { ...newOrders[index], [field]: value };
+    
+    const newCateringAmount = newOrders.reduce((sum, o) => sum + (Number(o.price) * (Number(o.quantity) || 1)), 0);
+    const newTotalAmount = parseFloat((Number(editingBill.workspaceAmount) + newCateringAmount).toFixed(2));
+    
+    setEditingBill({
+      ...editingBill,
+      orders: newOrders,
+      cateringAmount: newCateringAmount,
+      totalAmount: newTotalAmount
+    });
+  };
+
+  const handleRemoveBillItem = (index: number) => {
+    if (!editingBill) return;
+    const newOrders = editingBill.orders.filter((_: any, i: number) => i !== index);
+    const newCateringAmount = newOrders.reduce((sum, o) => sum + (Number(o.price) * (Number(o.quantity) || 1)), 0);
+    const newTotalAmount = parseFloat((Number(editingBill.workspaceAmount) + newCateringAmount).toFixed(2));
+    
+    setEditingBill({
+      ...editingBill,
+      orders: newOrders,
+      cateringAmount: newCateringAmount,
+      totalAmount: newTotalAmount
+    });
+  };
+
+  const handleAddBillItem = () => {
+    if (!editingBill) return;
+    const newOrders = [...editingBill.orders, { name: 'صنف جديد', price: 0, quantity: 1, time: new Date().toISOString() }];
+    setEditingBill({ ...editingBill, orders: newOrders });
+  };
+
+  const handleAcceptCheckout = async () => {
+    if (!editingBill) return;
+    try {
       const { error } = await supabase
         .from('workspace_sessions')
         .update({
           status: 'completed',
-          end_time: endTime.toISOString(),
-          total_minutes: diffMinutes,
-          total_amount: totalAmount
+          end_time: editingBill.endTime.toISOString(),
+          total_minutes: editingBill.diffMinutes,
+          catering_amount: editingBill.cateringAmount,
+          orders: editingBill.orders,
+          total_amount: editingBill.totalAmount
         })
-        .eq('id', session.id);
+        .eq('id', editingBill.id);
 
       if (error) throw error;
 
-      setCheckoutBill({
-        ...session,
-        workspaceAmount,
-        cateringAmount,
-        totalAmount,
-        diffMinutes,
-        endTime
-      });
-
+      setCheckoutBill({ ...editingBill });
+      setEditingBill(null);
       fetchSessions();
     } catch (err: any) {
       alert('حدث خطأ أثناء إنهاء الجلسة');
@@ -303,7 +348,7 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
                       </td>
                       <td className="py-6 px-6">
                         <button
-                          onClick={() => handleAcceptCheckout(session)}
+                          onClick={() => handlePrepareCheckout(session)}
                           className={`px-6 py-3 rounded-2xl text-white font-black text-sm transition-all hover:-translate-y-1 active:scale-95 shadow-lg ${
                             session.status === 'checkout_requested' 
                               ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/20' 
@@ -330,6 +375,107 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
             </table>
           </div>
       </div>
+      
+      {/* Bill Adjustment Modal */}
+      {editingBill && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xl z-[100] flex items-center justify-center p-4 animate-in fade-in transition-all">
+          <div className="bg-white rounded-[3rem] p-8 max-w-2xl w-full shadow-2xl animate-in zoom-in-95 duration-300 max-h-[90vh] overflow-y-auto custom-scrollbar flex flex-col">
+            <div className="flex justify-between items-center mb-6">
+               <div className="flex items-center gap-3">
+                  <Receipt className="text-indigo-600" size={24} />
+                  <h2 className="text-xl font-black text-slate-900">مراجعة وتعديل الحساب</h2>
+               </div>
+               <button onClick={() => setEditingBill(null)} className="p-2 text-slate-400 hover:bg-slate-50 rounded-full transition-colors">
+                  <X size={20} />
+               </button>
+            </div>
+
+            <div className="space-y-6 flex-1 pr-1">
+              {/* User Info */}
+              <div className="bg-slate-50 p-6 rounded-3xl flex justify-between items-center border border-slate-100">
+                <div className="text-right">
+                  <p className="text-slate-400 text-xs font-black uppercase mb-1">العميل</p>
+                  <p className="font-black text-slate-900">{editingBill.customers?.full_name || editingBill.user_code}</p>
+                </div>
+                <div className="text-right">
+                    <p className="text-slate-400 text-xs font-black uppercase mb-1">وقت الجلسة</p>
+                    <p className="font-black text-indigo-600">{editingBill.diffMinutes} دقيقة</p>
+                </div>
+                <div className="text-right">
+                    <p className="text-slate-400 text-xs font-black uppercase mb-1">مبلغ المكان</p>
+                    <input 
+                      type="number" 
+                      value={editingBill.workspaceAmount} 
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value) || 0;
+                        setEditingBill({...editingBill, workspaceAmount: val, totalAmount: parseFloat((val + editingBill.cateringAmount).toFixed(2))});
+                      }}
+                      className="w-24 text-center font-black bg-white border border-slate-200 rounded-lg px-2 py-1 focus:ring-2 ring-indigo-100 outline-none" 
+                    />
+                </div>
+              </div>
+
+              {/* Items List */}
+              <div className="space-y-4">
+                <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+                  <h3 className="font-black text-slate-700 text-sm">طلبات الكافتريا</h3>
+                  <button onClick={handleAddBillItem} className="text-[10px] font-black bg-indigo-50 text-indigo-600 px-3 py-1 rounded-lg hover:bg-indigo-100 transition-colors">إضافة صنف +</button>
+                </div>
+                
+                <div className="space-y-2">
+                  {editingBill.orders.map((o: any, idx: number) => (
+                    <div key={idx} className="grid grid-cols-12 gap-3 items-center bg-white p-3 border border-slate-100 rounded-2xl group hover:border-indigo-200 transition-all">
+                       <input 
+                         className="col-span-4 font-bold text-sm bg-slate-50 border-none rounded-xl px-3 py-2 outline-none" 
+                         value={o.name} 
+                         onChange={(e) => handleUpdateBillItem(idx, 'name', e.target.value)}
+                       />
+                       <div className="col-span-3 flex items-center gap-2">
+                         <span className="text-[10px] text-slate-400 font-bold">السعر</span>
+                         <input 
+                           type="number" 
+                           className="w-full text-center font-black text-emerald-600 bg-emerald-50/50 border-none rounded-xl px-2 py-2 outline-none" 
+                           value={o.price} 
+                           onChange={(e) => handleUpdateBillItem(idx, 'price', e.target.value)}
+                         />
+                       </div>
+                       <div className="col-span-3 flex items-center gap-2">
+                         <span className="text-[10px] text-slate-400 font-bold">كمية</span>
+                         <input 
+                           type="number" 
+                           className="w-full text-center font-black text-indigo-600 bg-indigo-50/50 border-none rounded-xl px-2 py-2 outline-none" 
+                           value={o.quantity || 1} 
+                           onChange={(e) => handleUpdateBillItem(idx, 'quantity', e.target.value)}
+                         />
+                       </div>
+                       <button onClick={() => handleRemoveBillItem(idx)} className="col-span-2 text-rose-400 hover:text-rose-600 p-2 opacity-0 group-hover:opacity-100 transition-all">
+                          <X size={18} />
+                       </button>
+                    </div>
+                  ))}
+                  {editingBill.orders.length === 0 && (
+                    <p className="text-center py-6 text-slate-400 text-xs font-bold bg-slate-50 rounded-2xl border-2 border-dashed border-slate-100">لا توجد طلبات مسجلة</p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Footer Summary */}
+            <div className="mt-8 pt-6 border-t border-slate-100">
+               <div className="flex justify-between items-center mb-6">
+                  <div className="text-right">
+                    <p className="text-2xl font-black text-emerald-600">{editingBill.totalAmount} <span className="text-xs">EGP</span></p>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">الإجمالي النهائي</p>
+                  </div>
+                  <div className="flex gap-4">
+                    <button onClick={() => setEditingBill(null)} className="px-6 py-3 rounded-2xl bg-slate-100 text-slate-600 font-black text-sm hover:bg-slate-200 transition-all">إلغاء</button>
+                    <button onClick={handleAcceptCheckout} className="px-10 py-3 rounded-2xl bg-emerald-600 text-white font-black text-sm shadow-xl shadow-emerald-100 hover:bg-emerald-700 hover:-translate-y-1 transition-all">تأكيد ومحاسبة</button>
+                  </div>
+               </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {checkoutBill && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xl z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in transition-all">

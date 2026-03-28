@@ -624,14 +624,7 @@ export const FinancePanel = ({ branchId }: { branchId?: string }) => {
         .update({
           total_income: parseFloat(editDailyIncome) || 0,
           total_expense: parseFloat(editDailyExpense) || 0,
-          // Update difference automatically
           difference: (editingDailyLog.actual_cash) - ( (parseFloat(editDailyIncome) || 0) - (parseFloat(editDailyExpense) || 0) ) 
-          // Wait, the difference is usually Expected - Actual.
-          // In handleFinalizeDay: difference: cashDiff
-          // cashDiff = expectedCash - totalCountedCash?
-          // Let's re-calculate correctly.
-          // Difference = actual_cash - ((total_income) - (total_expense))? 
-          // Actually, let's keep it simple or use the same logic as before.
         })
         .eq('id', editingDailyLog.id);
 
@@ -641,6 +634,22 @@ export const FinancePanel = ({ branchId }: { branchId?: string }) => {
       fetchMonthlyClosingsHistory();
     } catch (err: any) {
       alert('خطأ في التحديث: ' + err.message);
+    }
+  };
+
+  const handleDeleteDailyLog = async (id: string) => {
+    if (!confirm('هل أنت متأكد من مسح سجل الإقفال لهذا اليوم؟ سيتم فقدان البيانات المالية لهذا التاريخ من التقارير.')) return;
+    try {
+      const { error } = await (supabase as any)
+        .from('daily_closings')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+      showNotification('تم مسح سجل اليوم بنجاح');
+      fetchMonthlyClosingsHistory();
+    } catch (err: any) {
+      alert('خطأ في المسح: ' + err.message);
     }
   };
 
@@ -929,18 +938,28 @@ export const FinancePanel = ({ branchId }: { branchId?: string }) => {
                   <div className={`px-6 py-3 rounded-2xl text-[13px] font-black shadow-sm ${(day.difference || 0) === 0 ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' : 'bg-rose-50 text-rose-600 border border-rose-100'}`}>
                     {day.difference === 0 ? '✓ مطابق' : `⚠ فرق: ${day.difference?.toLocaleString()}`}
                   </div>
-                  <Button 
-                    variant="ghost" 
-                    size="sm" 
-                    onClick={() => {
-                      setEditingDailyLog(day);
-                      setEditDailyIncome(day.total_income?.toString() || '0');
-                      setEditDailyExpense(day.total_expense?.toString() || '0');
-                    }}
-                    className="p-2 text-indigo-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl"
-                  >
-                    <Edit size={18} />
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      onClick={() => {
+                        setEditingDailyLog(day);
+                        setEditDailyIncome(day.total_income?.toString() || '0');
+                        setEditDailyExpense(day.total_expense?.toString() || '0');
+                      }}
+                      className="p-2 text-indigo-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all"
+                    >
+                      <Edit size={18} />
+                    </Button>
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      onClick={() => handleDeleteDailyLog(day.id)}
+                      className="p-2 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all"
+                    >
+                      <Trash2 size={18} />
+                    </Button>
+                  </div>
                 </div>
               </div>
             ))}

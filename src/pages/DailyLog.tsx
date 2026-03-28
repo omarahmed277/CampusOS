@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { CalendarDays, ShoppingBag, Clock, CheckCircle2, User, RefreshCw, X, Receipt, TrendingUp, TrendingDown } from 'lucide-react';
+import { CalendarDays, ShoppingBag, Clock, CheckCircle2, User, RefreshCw, X, Receipt, TrendingUp, TrendingDown, Trash2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { Card, CardHeader, CardTitle, CardContent } from '../components/ui';
 
@@ -23,13 +23,20 @@ export const DailyLog = ({ branchId }: { branchId?: string }) => {
   const [subscriptions, setSubscriptions] = useState<any[]>([]);
   const [expenses, setExpenses] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  
+  // Edit Modal States
+  const [editingSession, setEditingSession] = useState<Session | null>(null);
+  const [editStartTime, setEditStartTime] = useState('');
+  const [editEndTime, setEditEndTime] = useState('');
+  const [editCatering, setEditCatering] = useState('');
+  const [editTotal, setEditTotal] = useState('');
 
   useEffect(() => {
     if (!branchId) return;
     
     fetchTodayLog();
 
-    const channel = supabase
+    const channel = (supabase as any)
       .channel(`daily_log_${branchId}`)
       .on('postgres_changes', { 
         event: '*', 
@@ -66,7 +73,7 @@ export const DailyLog = ({ branchId }: { branchId?: string }) => {
       const dateStr = todayISO.split('T')[0];
 
       // 1. Fetch Sessions
-      const { data: sessionsData, error: errSessions } = await supabase
+      const { data: sessionsData, error: errSessions } = await (supabase as any)
         .from('workspace_sessions')
         .select(`*, customers(full_name, code)`)
         .eq('branch_id', branchId)
@@ -77,7 +84,7 @@ export const DailyLog = ({ branchId }: { branchId?: string }) => {
       setSessions(sessionsData as Session[]);
 
       // 2. Fetch Subscriptions today
-      const { data: subsData } = await supabase
+      const { data: subsData } = await (supabase as any)
         .from('subscriptions')
         .select('price')
         .eq('branch_id', branchId)
@@ -85,7 +92,7 @@ export const DailyLog = ({ branchId }: { branchId?: string }) => {
       setSubscriptions(subsData || []);
 
       // 3. Fetch Expenses today
-      const { data: expData } = await supabase
+      const { data: expData } = await (supabase as any)
         .from('expenses')
         .select('*')
         .eq('branch_id', branchId)
@@ -96,6 +103,42 @@ export const DailyLog = ({ branchId }: { branchId?: string }) => {
       console.error(err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDeleteSession = async (id: string) => {
+    if (!confirm('هل أنت متأكد من مسح هذه الجلسة؟ سيتم حذفها نهائياً من سجلات اليوم والتقارير المالية.')) return;
+    try {
+      const { error } = await (supabase as any)
+        .from('workspace_sessions')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+      fetchTodayLog();
+    } catch (err: any) {
+      alert('خطأ في المسح: ' + err.message);
+    }
+  };
+
+  const handleUpdateSession = async () => {
+    if (!editingSession) return;
+    try {
+      const { error } = await (supabase as any)
+        .from('workspace_sessions')
+        .update({
+          start_time: editStartTime,
+          end_time: editEndTime || null,
+          catering_amount: parseFloat(editCatering) || 0,
+          total_amount: parseFloat(editTotal) || 0
+        })
+        .eq('id', editingSession.id);
+
+      if (error) throw error;
+      setEditingSession(null);
+      fetchTodayLog();
+    } catch (err: any) {
+      alert('خطأ في التحديث: ' + err.message);
     }
   };
 
@@ -183,7 +226,8 @@ export const DailyLog = ({ branchId }: { branchId?: string }) => {
                 <th className="px-4 py-4 text-center">وقت البدء / النهاية</th>
                 <th className="px-4 py-4 text-center">المتجر والمشتريات</th>
                 <th className="px-4 py-4 text-center">التكلفة الشاملة</th>
-                <th className="px-6 py-4 text-left">الحالة</th>
+                <th className="px-4 py-4 text-center">الحالة</th>
+                <th className="px-6 py-4 text-center">أدوات</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
@@ -259,12 +303,122 @@ export const DailyLog = ({ branchId }: { branchId?: string }) => {
                       </span>
                     )}
                   </td>
+                  <td className="px-6 py-4 text-center">
+                    <div className="flex items-center justify-center gap-2">
+                       <button 
+                         onClick={() => {
+                           setEditingSession(session);
+                           setEditStartTime(session.start_time);
+                           setEditEndTime(session.end_time || '');
+                           setEditCatering(session.catering_amount.toString());
+                           setEditTotal(session.total_amount?.toString() || '0');
+                         }}
+                         className="p-2 text-indigo-400 hover:text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-xl transition-all"
+                       >
+                         <Receipt size={16} />
+                       </button>
+                       <button 
+                         onClick={() => handleDeleteSession(session.id)}
+                         className="p-2 text-rose-400 hover:text-rose-600 bg-rose-50 hover:bg-rose-100 rounded-xl transition-all"
+                       >
+                         <Trash2 size={16} />
+                       </button>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       </div>
+
+      {/* Edit Session Modal */}
+      {editingSession && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-6 animate-in fade-in duration-500 text-right">
+          <Card className="w-full max-w-lg border border-white/40 shadow-2xl bg-white rounded-[3rem] overflow-hidden">
+            <CardHeader className="flex flex-row items-center justify-between pb-6 border-b border-slate-50">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-indigo-50 text-indigo-600 rounded-2xl">
+                  <Receipt size={24} />
+                </div>
+                <CardTitle className="font-black text-2xl">تعديل بيانات الجلسة</CardTitle>
+              </div>
+              <button 
+                onClick={() => setEditingSession(null)} 
+                className="p-2 text-slate-400 hover:text-slate-900 transition-all"
+              >
+                <X size={24} />
+              </button>
+            </CardHeader>
+
+            <CardContent className="p-8 space-y-8">
+              <div className="grid grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest px-1">وقت البدء</label>
+                  <input 
+                    type="datetime-local" 
+                    value={editStartTime.slice(0, 16)} 
+                    onChange={(e) => setEditStartTime(new Date(e.target.value).toISOString())}
+                    className="w-full h-14 bg-slate-50 border-2 border-slate-100 rounded-2xl px-4 font-bold focus:border-indigo-500 outline-none transition-all"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest px-1">وقت المغادرة</label>
+                  <input 
+                    type="datetime-local" 
+                    value={editEndTime ? editEndTime.slice(0, 16) : ''} 
+                    onChange={(e) => setEditEndTime(e.target.value ? new Date(e.target.value).toISOString() : '')}
+                    className="w-full h-14 bg-slate-50 border-2 border-slate-100 rounded-2xl px-4 font-bold focus:border-indigo-500 outline-none transition-all"
+                    placeholder="مستمر حتى الآن"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-6">
+                 <div className="space-y-2">
+                   <label className="text-xs font-black text-slate-400 uppercase tracking-widest px-1">تكلفة المتجر (Catering)</label>
+                   <div className="relative">
+                     <input 
+                       type="number" 
+                       value={editCatering} 
+                       onChange={(e) => setEditCatering(e.target.value)}
+                       className="w-full h-14 bg-slate-50 border-2 border-slate-100 rounded-2xl px-4 font-bold focus:border-indigo-500 outline-none transition-all pl-12"
+                     />
+                     <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[10px] font-black text-slate-400">EGP</span>
+                   </div>
+                 </div>
+                 <div className="space-y-2">
+                   <label className="text-xs font-black text-slate-400 uppercase tracking-widest px-1">الإجمالي المدفوع</label>
+                   <div className="relative">
+                     <input 
+                       type="number" 
+                       value={editTotal} 
+                       onChange={(e) => setEditTotal(e.target.value)}
+                       className="w-full h-14 bg-emerald-50 border-2 border-emerald-100 rounded-2xl px-4 font-black text-emerald-600 focus:border-emerald-500 outline-none transition-all pl-12"
+                     />
+                     <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[10px] font-black text-emerald-400">EGP</span>
+                   </div>
+                 </div>
+              </div>
+
+              <div className="flex gap-4 pt-4">
+                 <button 
+                   onClick={() => setEditingSession(null)}
+                   className="flex-1 h-16 rounded-[1.5rem] font-black text-slate-400 hover:bg-slate-100 transition-all"
+                 >
+                   إلغاء
+                 </button>
+                 <button 
+                   onClick={handleUpdateSession}
+                   className="flex-[2] h-16 rounded-[2rem] bg-indigo-600 hover:bg-indigo-500 text-white font-black text-xl shadow-xl shadow-indigo-100 transition-all active:scale-95"
+                 >
+                   حفظ التعديلات
+                 </button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 };
