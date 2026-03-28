@@ -25,13 +25,30 @@ export const DailyLog = ({ branchId }: { branchId?: string }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (!branchId) return;
+    
     fetchTodayLog();
 
     const channel = supabase
-      .channel('daily_log_all')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'workspace_sessions' }, () => fetchTodayLog())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'subscriptions' }, () => fetchTodayLog())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'expenses' }, () => fetchTodayLog())
+      .channel(`daily_log_${branchId}`)
+      .on('postgres_changes', { 
+        event: '*', 
+        schema: 'public', 
+        table: 'workspace_sessions',
+        filter: `branch_id=eq.${branchId}` 
+      }, () => fetchTodayLog())
+      .on('postgres_changes', { 
+        event: '*', 
+        schema: 'public', 
+        table: 'subscriptions',
+        filter: `branch_id=eq.${branchId}` 
+      }, () => fetchTodayLog())
+      .on('postgres_changes', { 
+        event: '*', 
+        schema: 'public', 
+        table: 'expenses',
+        filter: `branch_id=eq.${branchId}` 
+      }, () => fetchTodayLog())
       .subscribe();
 
     return () => {
@@ -40,6 +57,7 @@ export const DailyLog = ({ branchId }: { branchId?: string }) => {
   }, [branchId]);
 
   const fetchTodayLog = async () => {
+    if (!branchId) return;
     try {
       setLoading(true);
       const today = new Date();
@@ -51,6 +69,7 @@ export const DailyLog = ({ branchId }: { branchId?: string }) => {
       const { data: sessionsData, error: errSessions } = await supabase
         .from('workspace_sessions')
         .select(`*, customers(full_name, code)`)
+        .eq('branch_id', branchId)
         .gte('created_at', todayISO)
         .order('created_at', { ascending: false });
 

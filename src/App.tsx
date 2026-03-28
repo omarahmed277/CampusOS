@@ -33,9 +33,13 @@ const DashboardLayout = () => {
     const fetchBranches = async () => {
       const { data } = await supabase.from('branches').select('id, name').eq('is_active', true);
       if (data) {
-        const formatted = data.map(b => ({ id: b.id, name: b.name, color: 'blue' })); // Default color blue
+        const formatted = data.map(b => ({ id: b.id, name: b.name, color: 'blue' })); 
         setBranches(formatted);
-        if (formatted.length > 0) setCampus(formatted[0]);
+        if (formatted.length > 0) {
+          // Prioritize Cloud branch for consistency with kiosk
+          const mainBranch = formatted.find(b => b.name.toLowerCase().includes('cloud')) || formatted[0];
+          setCampus(mainBranch);
+        }
       }
     };
     fetchBranches();
@@ -183,4 +187,3 @@ export const App = () => {
     </Routes>
   );
 };
-

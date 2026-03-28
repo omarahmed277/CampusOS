@@ -23,18 +23,31 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
   const [startingSession, setStartingSession] = useState(false);
 
   useEffect(() => {
+    if (!branchId) return;
+    
     fetchSessions();
     const interval = setInterval(() => {
       setNow(Date.now());
     }, 60000); // UI update every minute
 
     const channel = supabase
-      .channel('workspace_admin_sessions')
+      .channel(`workspace_admin_sessions_${branchId}`)
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'workspace_sessions' },
-        () => {
-          fetchSessions();
+        { 
+          event: '*', 
+          schema: 'public', 
+          table: 'workspace_sessions'
+          // Removed specific filter to handle JS-side filtering for robustness
+        },
+        (payload) => {
+          const newData = payload.new as any;
+          const oldData = payload.old as any;
+          
+          // Only refresh if the change belongs to our branch or was moved out of it
+          if (newData?.branch_id === branchId || oldData?.branch_id === branchId) {
+            fetchSessions();
+          }
         }
       )
       .subscribe();
@@ -43,7 +56,7 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
       clearInterval(interval);
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [branchId]);
 
   const fetchSessions = async () => {
     setLoading(true);

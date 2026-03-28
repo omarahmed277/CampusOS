@@ -22,6 +22,9 @@ export const WorkspaceLogin = () => {
   const [session, setSession] = useState<any>(null);
   const [elapsedTime, setElapsedTime] = useState('00:00:00');
   
+  const [branchId, setBranchId] = useState<string | null>(localStorage.getItem('workspace_branch_id'));
+  const [branches, setBranches] = useState<any[]>([]);
+
   const [college, setCollege] = useState('');
   const [customCollege, setCustomCollege] = useState('');
   const [showCustomCollege, setShowCustomCollege] = useState(false);
@@ -46,7 +49,21 @@ export const WorkspaceLogin = () => {
     if (activeSessionId) {
       loadSession(activeSessionId);
     }
-  }, []);
+
+    const fetchBranches = async () => {
+        const { data } = await supabase.from('branches').select('id, name').eq('is_active', true);
+        if (data && data.length > 0) {
+            setBranches(data);
+            // Default to "Cloud" branch or the first one if not set
+            if (!branchId) {
+                const mainBranch = data.find(b => b.name.toLowerCase().includes('cloud')) || data[0];
+                setBranchId(mainBranch.id);
+                localStorage.setItem('workspace_branch_id', mainBranch.id);
+            }
+        }
+    };
+    fetchBranches();
+  }, [branchId]);
 
   const fetchStoreItems = async () => {
     try {
@@ -261,19 +278,29 @@ export const WorkspaceLogin = () => {
         .maybeSingle();
 
       if (existingSessions) {
-        localStorage.setItem('workspace_session_id', existingSessions.id);
-        setSession(existingSessions);
+        const sess = existingSessions as any;
+        // Essential: If the existing session has no branch_id, attach it to our branch now
+        if (!sess.branch_id && branchId) {
+            await (supabase as any)
+                .from('workspace_sessions')
+                .update({ branch_id: branchId })
+                .eq('id', sess.id);
+            sess.branch_id = branchId;
+        }
+        localStorage.setItem('workspace_session_id', sess.id);
+        setSession(sess);
       } else {
         // Create new session
-        const newSession = {
+        const newSession: any = {
           customer_id: customerData.id,
           user_code: customerData.code,
           phone_number: customerData.phone,
           start_time: new Date().toISOString(),
           status: 'active',
+          branch_id: branchId // Associated with the selected branch
         };
 
-        const { data: created, error: createError } = await supabase
+        const { data: created, error: createError } = await (supabase as any)
           .from('workspace_sessions')
           .insert(newSession)
           .select('*, customers(full_name)')
