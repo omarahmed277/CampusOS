@@ -1,6 +1,6 @@
 import { NavLink, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { LayoutDashboard, UserCheck, ClipboardCheck, Users2, Award, Layers, Calendar, Wallet, Receipt, Package, Users, Settings, LogOut } from 'lucide-react';
+import { LayoutDashboard, UserCheck, ClipboardCheck, Users2, Award, Layers, Calendar, Wallet, Receipt, Package, Users, Settings, LogOut, Monitor, Clock } from 'lucide-react';
 
 export const Sidebar = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) => {
   const navigate = useNavigate();
@@ -22,7 +22,12 @@ export const Sidebar = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => v
     { id: 'subscriptions', label: 'الاشتراكات', path: '/subscriptions', icon: Award },
     { id: 'contracts', label: 'التعاقدات', path: '/contracts', icon: Layers },
     { id: 'bookings', label: 'الحجوزات', path: '/bookings', icon: Calendar },
+    { id: 'rooms_serving', label: 'حالة الغرف', path: '/rooms-status', icon: Clock },
+    { id: 'rooms_database', label: 'قاعدة الغرف', path: '/rooms-database', icon: Layers },
+    { id: 'rooms_kiosk', label: 'شاشة العرض', path: '/rooms-kiosk', icon: Monitor },
     { id: 'finance', label: 'المالية والتقارير', path: '/finance', icon: Wallet },
+
+
     { id: 'expenses', label: 'المصروفات', path: '/expenses', icon: Receipt },
     { id: 'inventory', label: 'المخزن', path: '/inventory', icon: Package },
     { id: 'activities', label: 'الأنشطة', path: '/activities', icon: Calendar },

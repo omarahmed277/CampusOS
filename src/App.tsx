@@ -21,6 +21,11 @@ import { FinancePanel } from './pages/FinancePanel';
 import { ExpensesPanel } from './pages/ExpensesPanel';
 import { InventoryPanel } from './pages/InventoryPanel';
 import { ActivitiesPage } from './pages/ActivitiesPage';
+import { RoomsStatus } from './pages/RoomsStatus';
+import { RoomsKiosk } from './pages/RoomsKiosk';
+import { RoomsDatabase } from './pages/RoomsDatabase'; // Add this line
+
+
 
 const DashboardLayout = () => {
   const [branches, setBranches] = useState<Campus[]>([]);
@@ -61,7 +66,10 @@ const DashboardLayout = () => {
       case '/expenses': return 'سجل المصروفات';
       case '/inventory': return 'إدارة المخزن';
       case '/activities': return 'خطة الأنشطة السنوية';
+      case '/rooms-status': return 'حالة الغرف وحجوزات الساعة';
+      case '/rooms-database': return 'قاعدة بيانات الغرف';
       case '/settings': return 'إعدادات النظام';
+
       default: return 'Campus OS';
     }
   };
@@ -120,7 +128,10 @@ const DashboardLayout = () => {
               <Route path="/expenses" element={<ExpensesPanel branchId={currentCampus?.id} />} />
               <Route path="/inventory" element={<InventoryPanel branchId={currentCampus?.id} />} />
               <Route path="/activities" element={<ActivitiesPage branchId={currentCampus?.id} />} />
+              <Route path="/rooms-status" element={<RoomsStatus branchId={currentCampus?.id} />} />
+              <Route path="/rooms-database" element={<RoomsDatabase branchId={currentCampus?.id} />} />
               <Route path="/settings" element={<SettingsPanel branchId={currentCampus?.id} />} />
+
               <Route path="*" element={
                 <div className="p-20 text-center glass rounded-[3rem] font-black justify-center items-center flex flex-col gap-4">
                   <div className="text-6xl text-slate-300">404</div>
@@ -175,6 +186,8 @@ export const App = () => {
   return (
     <Routes>
       <Route path="/workspace" element={<WorkspaceLogin />} />
+      <Route path="/rooms-kiosk" element={<RoomsKiosk />} />
+
       <Route path="/login" element={<LoginPage />} />
       <Route 
         path="/*" 
