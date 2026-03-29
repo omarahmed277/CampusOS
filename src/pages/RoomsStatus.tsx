@@ -108,12 +108,45 @@ export const RoomsStatus = ({ branchId }: { branchId?: string }) => {
     }
   };
 
-  const handleEndServing = async (sessionId: string) => {
-    if (!window.confirm('هل تريد إنهاء الجلسة لهذه الغرفة؟')) return;
+  const handleEndServing = async (room: Room) => {
+    const session = room.current_session;
+    if (!session) return;
+    
+    if (!window.confirm(`هل تريد إنهاء الجلسة لـ ${room.name_ar}؟`)) return;
+    
     setProcessing(true);
     try {
-      const { error } = await supabase.from('workspace_sessions').update({ end_time: new Date().toISOString(), status: 'completed' }).eq('id', sessionId);
-      if (error) throw error;
+      const startTime = new Date(session.start_time);
+      const endTime = new Date();
+      const diffMs = Math.abs(endTime.getTime() - startTime.getTime());
+      const diffMins = Math.ceil(diffMs / (1000 * 60));
+      const hours = diffMins / 60;
+      
+      const totalSessionAmount = Math.ceil(hours * room.base_price);
+      
+      // Update session with final results
+      const { error: sessionError } = await supabase
+          .from('workspace_sessions')
+          .update({ 
+              end_time: endTime.toISOString(), 
+              status: 'completed',
+              total_minutes: diffMins,
+              total_amount: totalSessionAmount
+          })
+          .eq('id', session.id);
+
+      if (sessionError) throw sessionError;
+
+      // Create a financial record (Bill)
+      const { error: billError } = await (supabase as any).from('bills').insert({
+          session_id: session.id,
+          amount: totalSessionAmount,
+          rate_per_hour: room.base_price,
+          user_id: session.customer_id
+      });
+      
+      if (billError) console.error('Error creating bill record:', billError);
+
       fetchRoomsStatus();
     } catch (err: any) {
       alert('Error: ' + err.message);
@@ -218,7 +251,7 @@ export const RoomsStatus = ({ branchId }: { branchId?: string }) => {
                              <span className="text-indigo-600">من {new Date(room.current_session.start_time).toLocaleTimeString('ar-EG', { hour12: true, hour: '2-digit', minute: '2-digit' })}</span>
                           </div>
                        </div>
-                       <button onClick={() => handleEndServing(room.current_session.id)} disabled={processing} className="w-full bg-rose-500 text-white py-5 rounded-[2rem] font-black text-sm hover:bg-rose-600 transition-all shadow-lg shadow-rose-200 disabled:opacity-50">
+                       <button onClick={() => handleEndServing(room)} disabled={processing} className="w-full bg-rose-500 text-white py-5 rounded-[2rem] font-black text-sm hover:bg-rose-600 transition-all shadow-lg shadow-rose-200 disabled:opacity-50">
                           إنهاء الجلسة
                        </button>
                     </div>

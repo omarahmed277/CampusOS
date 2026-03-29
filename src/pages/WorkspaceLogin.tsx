@@ -23,6 +23,8 @@ export const WorkspaceLogin = () => {
   const [finalBill, setFinalBill] = useState<any>(null);
   const [elapsedTime, setElapsedTime] = useState('00:00:00');
   const [isSignUp, setIsSignUp] = useState(false);
+  const [isForgotCode, setIsForgotCode] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState('');
   const [branchId, setBranchId] = useState<string | null>(localStorage.getItem('workspace_branch_id'));
 
   const [college, setCollege] = useState('');
@@ -430,6 +432,70 @@ export const WorkspaceLogin = () => {
     }
   };
 
+  const handleForgotCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+    try {
+      if (!forgotEmail) throw new Error('يرجى إدخال البريد الإلكتروني أو رقم الهاتف');
+
+      const cleanInput = forgotEmail.trim();
+      const isPhone = /^[0-9]+$/.test(cleanInput);
+
+      let query = (supabase.from('customers') as any).select('*');
+      
+      if (isPhone) {
+        // Normalize: strip all non-digits, then remove ONLY the leading 0 or +20 if present
+        const digitsOnly = cleanInput.replace(/\D/g, '');
+        const cleanPhone = digitsOnly.replace(/^(\+20|0)/, '');
+        query = query.ilike('phone', `%${cleanPhone}%`);
+      } else {
+        query = query.ilike('email', cleanInput);
+      }
+
+      const { data: customer, error: fetchErr } = await query.limit(1).maybeSingle();
+
+      if (fetchErr) {
+          console.error('Lookup error:', fetchErr);
+          throw new Error('حدث خطأ فني أثناء البحث. يرجى المحاولة مرة أخرى.');
+      }
+
+      if (!customer) {
+        throw new Error('لم نجد أي حساب بهذا البريد أو الرقم، تأكد من صحته.');
+      }
+
+      if (!customer.email) {
+        throw new Error('لا يوجد بريد إلكتروني مسجل لهذا الحساب لإرسال الكود إليه. يرجى مراجعة الاستقبال.');
+      }
+
+      // Trigger the existing email function to resend the code
+      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-welcome-email`;
+      const res = await fetch(url, {
+          method: 'POST',
+          headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`
+          },
+          body: JSON.stringify({ record: customer })
+      });
+
+      if (!res.ok) throw new Error('فشل إرسال البريد، حاول مرة أخرى لاحقاً.');
+
+      setRegSuccessData({ 
+          name: customer.full_name, 
+          code: customer.code, 
+          email: customer.email 
+      });
+      setShowSuccessModal(true);
+      setIsForgotCode(false);
+      setIsSignUp(false);
+    } catch (err: any) {
+      setError(err.message || 'حدث خطأ غير متوقع.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleCheckoutRequest = async () => {
     if (!session) return;
     setLoading(true);
@@ -795,10 +861,50 @@ export const WorkspaceLogin = () => {
           </div>
           
           <h1 className="text-3xl font-black text-white mb-2 tracking-tight">مساحة العمل</h1>
-          <p className="text-slate-400 font-bold">{isSignUp ? 'أنشئ حساباً لبدء جلستك' : 'أدخل بياناتك لبدء جلستك'}</p>
+          <p className="text-slate-400 font-bold">{isForgotCode ? 'استعادة كود الدخول' : isSignUp ? 'أنشئ حساباً لبدء جلستك' : 'أدخل بياناتك لبدء جلستك'}</p>
         </div>
 
-        {isSignUp ? (
+        {isForgotCode ? (
+          <form onSubmit={handleForgotCode} className="space-y-6">
+             {error && (
+              <div className="bg-rose-500/10 border border-rose-500/20 text-rose-400 px-4 py-3 rounded-xl text-sm font-bold text-center">
+                {error}
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <label className="text-sm font-bold text-slate-400 block ml-1">البريد الإلكتروني أو رقم الهاتف المسجل</label>
+              <input
+                type="text"
+                required
+                value={forgotEmail}
+                onChange={(e) => setForgotEmail(e.target.value)}
+                className="w-full bg-[#0B0F19]/60 border border-white/10 rounded-2xl px-5 py-4 text-white font-bold focus:outline-none focus:border-[#1e75b9] focus:ring-1 focus:ring-[#1e75b9] transition-all"
+                placeholder="01xxxxxxxxx أو example@mail.com"
+                dir="auto"
+              />
+              <p className="text-[10px] text-[#f78c2a] font-black mr-1 mt-1 italic leading-relaxed">تنبيه: سيتم إرسال الكود فوراً إلى بريدك الإلكتروني المسجل لدينا.</p>
+            </div>
+
+            <div className="pt-4 flex flex-col gap-4">
+              <button
+                type="submit"
+                disabled={loading || !forgotEmail}
+                className="w-full bg-[#f78c2a] hover:bg-[#e67b1a] disabled:opacity-50 text-white rounded-2xl py-4 font-black text-lg transition-all shadow-[0_0_20px_rgba(247,140,42,0.3)] active:scale-95"
+              >
+                {loading ? 'جاري الإرسال...' : 'إرسال الكود للبريد'}
+              </button>
+              
+              <button
+                type="button"
+                onClick={() => { setIsForgotCode(false); setError(''); }}
+                className="text-slate-400 hover:text-white text-sm font-bold transition-colors"
+              >
+                العودة لتسجيل الدخول
+              </button>
+            </div>
+          </form>
+        ) : isSignUp ? (
           <form onSubmit={handleSignUp} className="space-y-5">
             {error && (
               <div className="bg-rose-500/10 border border-rose-500/20 text-rose-400 px-4 py-3 rounded-xl text-sm font-bold text-center">
@@ -970,10 +1076,18 @@ export const WorkspaceLogin = () => {
               </button>
             </div>
 
-            <div className="text-center mt-6">
+            <div className="flex flex-col gap-4 mt-6 text-center">
               <button
                 type="button"
-                onClick={() => { setIsSignUp(true); setError(''); }}
+                onClick={() => { setIsForgotCode(true); setIsSignUp(false); setError(''); }}
+                className="text-slate-400 hover:text-white text-sm font-bold transition-colors"
+              >
+                نسيت كود الدخول؟ <span className="text-[#f78c2a] underline decoration-2 underline-offset-4">استعادة الكود</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => { setIsSignUp(true); setIsForgotCode(false); setError(''); }}
                 className="text-slate-400 hover:text-white text-sm font-bold transition-colors"
               >
                 أول مرة تزورنا؟ <span className="text-[#1ed788] underline decoration-2 underline-offset-4">أنشئ حساباً مجانياً</span>
