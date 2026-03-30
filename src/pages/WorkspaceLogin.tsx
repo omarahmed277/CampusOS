@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Clock, LogOut, CheckCircle2, Coffee, ShoppingBag, Info, HelpCircle, User } from 'lucide-react';
+import { Clock, LogOut, CheckCircle2, Coffee, ShoppingBag, Info, HelpCircle, User, Sparkles, CalendarDays, ChevronLeft, Receipt, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 // UI tabs options
@@ -1192,65 +1192,137 @@ export const WorkspaceLogin = () => {
   );
 };
 
-// Internal component for the user receipt
 const FinalReceiptModal = ({ bill, onClose }: { bill: any, onClose: () => void }) => {
+    const [sub, setSub] = useState<any>(null);
+    const [loading, setLoading] = useState(false);
+
+    useEffect(() => {
+        if (bill.payment_method === 'subscription' && bill.customer_id) {
+            const fetchSub = async () => {
+                setLoading(true);
+                const { data } = await supabase
+                    .from('subscriptions')
+                    .select('*')
+                    .eq('customer_id', bill.customer_id)
+                    .in('status', ['Active', 'Exhausted'])
+                    .order('created_at', { ascending: false })
+                    .limit(1)
+                    .maybeSingle();
+                if (data) setSub(data);
+                setLoading(false);
+            };
+            fetchSub();
+        }
+    }, [bill]);
+
     return (
-        <div className="fixed inset-0 bg-[#0B0F19]/90 backdrop-blur-2xl z-[500] flex items-center justify-center p-4 animate-in fade-in transition-all">
-          <div className="bg-white rounded-[3rem] p-10 max-w-md w-full shadow-2xl animate-in zoom-in-95 duration-500 overflow-hidden relative">
-            <div className="absolute top-0 left-0 w-full h-2 bg-emerald-500" />
-            
-            <div className="text-center mb-8">
-               <div className="w-20 h-20 bg-emerald-100/50 rounded-full flex items-center justify-center mx-auto mb-4 border border-emerald-100 shadow-sm">
-                  <CheckCircle2 size={40} className="text-emerald-600" />
-               </div>
-               <h2 className="text-3xl font-black text-slate-900 leading-tight">شكراً لزيارتك!</h2>
-               <p className="text-slate-400 font-bold text-sm mt-1 uppercase tracking-wider">Your Final Receipt</p>
+        <div className="fixed inset-0 bg-[#0B0F19]/95 backdrop-blur-3xl z-[500] flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in transition-all">
+          <div className="bg-white rounded-t-[3.5rem] sm:rounded-[3.5rem] p-10 max-w-md w-full shadow-2xl animate-in slide-in-from-bottom-20 duration-500 overflow-hidden relative max-h-[95vh] overflow-y-auto custom-scrollbar">
+            {/* Header matching Admin Bill */}
+            <div className="flex justify-between items-center mb-10">
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-14 bg-indigo-600 rounded-2xl flex items-center justify-center text-white shadow-xl shadow-indigo-100">
+                  <Receipt size={28} />
+                </div>
+                <div className="text-right">
+                  <h2 className="text-2xl font-black text-slate-900 leading-tight">فاتورة الزيارة</h2>
+                  <p className="text-indigo-600 text-[10px] font-black tracking-widest mt-1 uppercase">Session Summary</p>
+                </div>
+              </div>
+              <button 
+                onClick={onClose}
+                className="p-3 text-slate-400 hover:bg-slate-50 rounded-full transition-all"
+              >
+                <X size={24} />
+              </button>
             </div>
 
-            <div className="space-y-6">
-              <div className="bg-slate-50/50 rounded-[2rem] p-6 space-y-4 border border-slate-100">
-                <div className="flex justify-between items-center text-sm font-black border-b border-slate-100 pb-3">
-                   <span className="text-slate-400">كود المستخدم</span>
-                   <span className="text-indigo-600 bg-white px-3 py-1 rounded-lg border border-indigo-50 shadow-sm">{bill.user_code}</span>
+            <div className="space-y-8 text-right">
+              <div className="bg-slate-50/80 rounded-[2.5rem] p-8 space-y-6 relative overflow-hidden border border-slate-100">
+                <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/5 rounded-full blur-3xl -z-10" />
+                
+                {/* Client Info Section */}
+                <div className="border-b-2 border-dashed border-slate-200 pb-6 text-center">
+                  <p className="text-slate-400 text-[10px] font-black mb-2 uppercase tracking-widest">مرحباً بك مجدداً</p>
+                  <p className="text-2xl font-black text-slate-900">{bill.customers?.full_name || 'زائر متميز'}</p>
+                  <p className="text-lg font-black text-indigo-600 bg-white inline-block px-4 py-1 rounded-xl shadow-sm border border-indigo-50 mt-3 font-mono">{bill.user_code}</p>
                 </div>
                 
-                <div className="space-y-2">
-                   <div className="flex justify-between items-center text-sm font-bold">
-                      <span className="text-slate-500">مدة الجلسة:</span>
-                      <span className="text-slate-900">{bill.total_minutes || 0} دقيقة</span>
-                   </div>
-                   <div className="flex justify-between items-center text-sm font-bold">
-                      <span className="text-slate-500">طلبات المتجر:</span>
-                      <span className="text-slate-900">{bill.catering_amount || 0} EGP</span>
-                   </div>
+                <div className="space-y-4 font-bold text-slate-600">
+                  <div className="flex justify-between items-center bg-white/50 p-4 rounded-2xl border border-white">
+                    <span className="text-xs font-black text-slate-400">وقت الاستخدام</span>
+                    <span className="text-slate-900 font-black">
+                       {Math.floor((bill.total_minutes || 0) / 60)}h {Number(bill.total_minutes || 0) % 60}m
+                    </span>
+                  </div>
+                  
+                  <div className="flex justify-between items-center bg-white/50 p-4 rounded-2xl border border-white text-right">
+                    <span className="text-xs font-black text-slate-400">تكفلة الجلسة</span>
+                    <span className={`font-black ${bill.payment_method === 'subscription' ? 'text-indigo-600' : 'text-slate-900'}`}>
+                       {bill.payment_method === 'subscription' ? '✓ اشتراك ساعات فعال' : `${Number(bill.total_amount || 0) - (Number(bill.catering_amount) || 0)} EGP`}
+                    </span>
+                  </div>
+
+                  {bill.payment_method === 'subscription' && (
+                    <div className="bg-indigo-900 text-white p-6 rounded-3xl shadow-lg relative overflow-hidden group">
+                      <div className="absolute top-0 right-0 w-full h-full bg-gradient-to-br from-white/10 to-transparent pointer-events-none" />
+                      <div className="flex justify-between items-center relative z-10">
+                        <div className="text-left">
+                          <p className="text-2xl font-black">{loading ? '...' : sub ? (sub.total_hours - sub.used_hours).toFixed(1) : '0.0'} <span className="text-[10px] opacity-40 uppercase tracking-widest ml-1">H Left</span></p>
+                          <p className="text-[8px] font-black text-indigo-300 uppercase tracking-widest mt-1">
+                            Expires: {sub ? new Date(sub.end_date).toLocaleDateString('ar-EG') : '...'}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <div className="flex items-center gap-1 justify-end mb-1">
+                            <p className="text-[10px] font-black text-indigo-200 uppercase tracking-widest">Subscription</p>
+                            <Sparkles size={10} className="text-emerald-400" />
+                          </div>
+                          <p className="text-xs font-black whitespace-nowrap">{(Number(bill.total_minutes || 0) / 60).toFixed(2)}h used</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  
+                  <div className="flex justify-between items-center bg-white/50 p-4 rounded-2xl border border-white">
+                    <span className="text-xs font-black text-slate-400">رصيد المتجر</span>
+                    <span className="text-slate-900 font-black">{bill.catering_amount || 0} EGP</span>
+                  </div>
                 </div>
 
                 {bill.orders && bill.orders.length > 0 && (
-                  <div className="pt-4 mt-2 border-t border-dashed border-slate-200">
-                    <p className="text-[10px] font-black text-slate-400 mb-3 uppercase tracking-widest text-center">Breakdown</p>
-                    <div className="space-y-2 max-h-32 overflow-y-auto custom-scrollbar pr-1">
+                  <div className="mt-8 pt-6 border-t border-slate-200">
+                    <p className="text-[10px] font-black text-slate-400 mb-4 uppercase tracking-[0.2em] text-center">أصناف الكافيتريا</p>
+                    <div className="space-y-2">
                       {bill.orders.map((o: any, idx: number) => (
-                        <div key={idx} className="flex justify-between items-center text-xs font-black bg-white rounded-xl p-3 border border-slate-50">
-                          <span className="text-slate-600 truncate max-w-[120px]">{o.name} <span className="opacity-50">x{o.quantity}</span></span>
+                        <div key={idx} className="flex justify-between items-center text-xs font-black bg-white rounded-xl p-3 border border-slate-50 shadow-sm">
+                          <span className="text-slate-500">{o.name} <span className="opacity-40 ml-1">x{o.quantity}</span></span>
                           <span className="text-slate-900 font-mono">{o.price} EGP</span>
                         </div>
                       ))}
                     </div>
                   </div>
                 )}
-
-                <div className="pt-6 mt-2 border-t border-slate-200 flex flex-col items-center gap-1">
-                   <span className="text-slate-400 text-[10px] font-black uppercase tracking-widest">Total Amount Paid</span>
-                   <p className="text-5xl font-black text-slate-900 tracking-tighter">{bill.total_amount} <span className="text-sm opacity-30 mt-1">EGP</span></p>
+                
+                <div className="pt-8 mt-4 border-t-2 border-dashed border-slate-200 flex flex-col items-center gap-1">
+                  <span className="text-slate-400 text-[10px] font-black uppercase tracking-widest">المبلغ كاش للمتجر</span>
+                  <p className="text-5xl font-black text-emerald-600 drop-shadow-sm">
+                    {bill.payment_method === 'subscription' ? bill.catering_amount : bill.total_amount} 
+                    <span className="text-base opacity-30 ml-2">EGP</span>
+                  </p>
                 </div>
               </div>
 
-              <button
-                onClick={onClose}
-                className="w-full bg-[#1e75b9] hover:bg-[#155a96] text-white rounded-[2rem] py-5 font-black text-lg transition-all shadow-xl shadow-[#1e75b9]/20 flex items-center justify-center gap-3"
-              >
-                إنهاء الجلسة والعودة
-              </button>
+              <div className="space-y-4">
+                <button
+                  onClick={onClose}
+                  className="w-full py-6 bg-slate-900 text-white font-black rounded-[2.5rem] shadow-xl hover:bg-black hover:-translate-y-1 active:scale-95 transition-all text-lg flex items-center justify-center gap-3 group"
+                >
+                  <CheckCircle2 size={24} className="text-emerald-400" />
+                  <span>تم الدفع والإنهاء</span>
+                  <ChevronLeft size={24} className="group-hover:-translate-x-1 transition-transform" />
+                </button>
+              </div>
             </div>
           </div>
         </div>

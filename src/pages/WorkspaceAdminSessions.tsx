@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Clock, CheckCircle2, AlertCircle, RefreshCw, X, Receipt, Users2 } from 'lucide-react';
+import { Clock, CheckCircle2, AlertCircle, RefreshCw, X, Receipt, Users2, Sparkles } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { calculateSessionPrice } from '../lib/pricing';
 
@@ -69,7 +69,7 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
     try {
       const { data, error } = await (supabase as any)
         .from('workspace_sessions')
-        .select(`*, customers(full_name)`)
+        .select(`*, customers(full_name, subscriptions(*))`)
         .eq('branch_id', branchId || '')
         .in('status', ['active', 'checkout_requested'])
         .order('start_time', { ascending: false });
@@ -90,18 +90,31 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
     }
   };
 
-  const handlePrepareCheckout = (session: Session) => {
-    // If user already requested checkout, use the time they clicked (real-time)
-    // Otherwise use current time
+  const handlePrepareCheckout = (session: Session | any) => {
     const endTime = (session.status === 'checkout_requested' && session.end_time) 
       ? new Date(session.end_time) 
       : new Date();
     const startTime = new Date(session.start_time);
     const diffMs = endTime.getTime() - startTime.getTime();
     const diffMinutes = Math.max(1, Math.ceil(diffMs / 60000));
-    
-    
-    const workspaceAmount = calculateSessionPrice(diffMinutes);
+    const usedHours = parseFloat((diffMinutes / 60).toFixed(2));
+
+    // Check for Active Subscription
+    const activeSub = session.customers?.subscriptions?.find((s: any) => 
+        s.status === 'Active' && 
+        new Date(s.end_date) >= new Date() &&
+        s.used_hours < s.total_hours
+    );
+
+    let workspaceAmount = calculateSessionPrice(diffMinutes);
+    let isSubscribed = false;
+    let remainingSubHours = 0;
+
+    if (activeSub) {
+        isSubscribed = true;
+        workspaceAmount = 0; 
+        remainingSubHours = activeSub.total_hours - activeSub.used_hours;
+    }
     
     const orders = Array.isArray(session.orders) ? [...session.orders] : [];
     const cateringAmount = orders.reduce((sum, o) => sum + (Number(o.price) * (Number(o.quantity) || 1)), 0);
@@ -114,7 +127,48 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
       cateringAmount,
       totalAmount,
       diffMinutes,
-      endTime
+      usedHours,
+      startTime: startTime.toISOString(),
+      endTime,
+      isSubscribed,
+      subscriptionId: activeSub?.id,
+      remainingSubHours: remainingSubHours - usedHours,
+      initialRemaining: remainingSubHours,
+      subEndDate: activeSub?.end_date
+    });
+  };
+
+  const handleUpdateTime = (field: 'startTime' | 'endTime', value: string) => {
+    if (!editingBill) return;
+    
+    const startTime = field === 'startTime' ? new Date(value) : new Date(editingBill.startTime);
+    const endTime = field === 'endTime' ? new Date(value) : new Date(editingBill.endTime);
+    
+    const diffMs = endTime.getTime() - startTime.getTime();
+    const diffMinutes = Math.max(1, Math.ceil(diffMs / 60000));
+    const usedHours = parseFloat((diffMinutes / 60).toFixed(2));
+
+    let workspaceAmount = 0;
+    let remainingSubHours = 0;
+
+    if (editingBill.isSubscribed) {
+       workspaceAmount = 0;
+       remainingSubHours = editingBill.initialRemaining - usedHours;
+    } else {
+       workspaceAmount = calculateSessionPrice(diffMinutes);
+    }
+
+    const totalAmount = workspaceAmount + editingBill.cateringAmount;
+
+    setEditingBill({
+       ...editingBill,
+       startTime: startTime.toISOString(),
+       endTime: endTime,
+       diffMinutes,
+       usedHours,
+       workspaceAmount,
+       totalAmount,
+       remainingSubHours
     });
   };
 
@@ -157,26 +211,56 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
   const handleAcceptCheckout = async () => {
     if (!editingBill) return;
     try {
-      const { error } = await supabase
+      // 1. Update the session record
+      const { error: sessionError } = await supabase
         .from('workspace_sessions')
         .update({
           status: 'completed',
+          start_time: editingBill.startTime,
           end_time: editingBill.endTime.toISOString(),
-          total_minutes: editingBill.diffMinutes,
-          catering_amount: editingBill.cateringAmount,
-          orders: editingBill.orders,
-          total_amount: editingBill.totalAmount
+          total_minutes: Number(editingBill.diffMinutes) || 0,
+          catering_amount: Number(editingBill.cateringAmount) || 0,
+          orders: editingBill.orders || [],
+          total_amount: Number(editingBill.totalAmount) || 0,
+          payment_method: editingBill.isSubscribed ? 'subscription' : 'cash'
         })
         .eq('id', editingBill.id);
 
-      if (error) throw error;
+      if (sessionError) {
+          console.error('Session Update Error:', sessionError);
+          throw sessionError;
+      }
 
-      setCheckoutBill({ ...editingBill });
+      // 2. Adjust Subscription Balance if applicable
+      if (editingBill.isSubscribed && editingBill.subscriptionId) {
+          const { data: sub, error: subFetchError } = await supabase
+              .from('subscriptions')
+              .select('used_hours, total_hours')
+              .eq('id', editingBill.subscriptionId)
+              .single();
+          
+          if (subFetchError) {
+              console.error('Subscription Fetch Error:', subFetchError);
+          } else if (sub) {
+              const newUsed = parseFloat((Number(sub.used_hours || 0) + (Number(editingBill.usedHours) || 0)).toFixed(2));
+              const { error: subUpdateError } = await supabase
+                .from('subscriptions')
+                .update({ 
+                    used_hours: newUsed,
+                    status: newUsed >= Number(sub.total_hours) ? 'Exhausted' : 'Active'
+                })
+                .eq('id', editingBill.subscriptionId);
+              
+              if (subUpdateError) console.error('Subscription Update Error:', subUpdateError);
+          }
+      }
+
+      setCheckoutBill({ ...editingBill, remainingAfter: editingBill.remainingSubHours });
       setEditingBill(null);
       fetchSessions();
     } catch (err: any) {
-      alert('حدث خطأ أثناء إنهاء الجلسة');
-      console.error(err);
+      alert('حدث خطأ أثناء إنهاء الجلسة. يرجى مراجعة سجلات الكونسول.');
+      console.error('Checkout Main Error:', err);
     }
   };
 
@@ -346,13 +430,37 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
                   const hrs = Math.floor(totalMins / 60);
                   const mins = totalMins % 60;
                   
+                  const activeSub = session.customers?.subscriptions?.find((s: any) => 
+                    s.status === 'Active' && 
+                    new Date(s.end_date) >= new Date() &&
+                    s.used_hours < s.total_hours
+                  );
+
                   return (
                     <tr key={session.id} className="border-b border-slate-50 hover:bg-slate-50/80 transition-all group">
                       <td className="py-6 px-6">
-                        <div className="font-extrabold text-slate-900 text-lg">
-                          {session.customers?.full_name || (session.user_code.startsWith('NA') ? `زائر (${session.user_code})` : 'مستخدم غير مسجل')}
+                        <div className="flex flex-row-reverse items-center justify-end gap-3 text-right">
+                          <div className="text-right">
+                            <div className="font-extrabold text-slate-900 text-lg">
+                              {session.customers?.full_name || (session.user_code.startsWith('NA') ? `زائر (${session.user_code})` : 'مستخدم غير مسجل')}
+                            </div>
+                            <div className="flex flex-row-reverse items-center gap-2 mt-1">
+                               <div className="text-sm font-black text-indigo-500 bg-indigo-50 px-2 py-0.5 rounded-lg w-fit">{session.user_code}</div>
+                               {activeSub && (
+                                  <div className="flex flex-row-reverse items-center gap-1 px-2 py-0.5 bg-emerald-50 text-emerald-600 rounded-lg text-[10px] font-black animate-pulse">
+                                     <Sparkles size={10} />
+                                     <span>Subscribed</span>
+                                  </div>
+                               )}
+                            </div>
+                            {activeSub && (
+                               <div className="mt-2 space-y-1 text-right border-r-2 border-emerald-100 pr-2 mr-1">
+                                  <p className="text-[9px] font-black text-slate-400">Ends: {new Date(activeSub.end_date).toLocaleDateString('ar-EG')}</p>
+                                  <p className="text-[10px] font-black text-emerald-600">Left: {(activeSub.total_hours - activeSub.used_hours).toFixed(1)}H</p>
+                                </div>
+                            )}
+                          </div>
                         </div>
-                        <div className="text-sm font-black text-indigo-500 bg-indigo-50 px-2 py-0.5 rounded-lg w-fit mt-1">{session.user_code}</div>
                       </td>
                       <td className="py-6 px-6 font-bold text-slate-600">{session.phone_number}</td>
                       <td className="py-6 px-6 font-semibold text-slate-600">
@@ -438,6 +546,48 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
             </div>
 
             <div className="space-y-6 flex-1 pr-1">
+              {/* Subscription Info Badge */}
+              {editingBill.isSubscribed && (
+                <div className="bg-indigo-900 text-white p-6 rounded-3xl relative overflow-hidden group shadow-xl">
+                   <div className="absolute top-0 right-0 w-full h-full bg-gradient-to-br from-indigo-500/20 to-transparent -z-10" />
+                   <div className="flex justify-between items-center relative z-10 text-right">
+                      <div>
+                         <p className="text-4xl font-black">{editingBill.remainingSubHours.toFixed(1)} <span className="text-sm opacity-50 uppercase tracking-widest">H Left</span></p>
+                         <p className="text-[10px] font-black text-indigo-300 uppercase tracking-widest mt-1">Expires: {new Date(editingBill.subEndDate).toLocaleDateString('ar-EG')}</p>
+                      </div>
+                      <div className="text-right">
+                         <div className="flex items-center gap-2 justify-end mb-1">
+                            <h4 className="text-lg font-black">اشتراك فعال للساعات</h4>
+                            <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
+                         </div>
+                         <p className="text-xs font-bold text-indigo-200">سيتم الخصم المباشر من رصيد العميل</p>
+                      </div>
+                   </div>
+                </div>
+              )}
+
+              {/* Time Control */}
+              <div className="grid grid-cols-2 gap-4">
+                 <div className="bg-slate-50 p-4 rounded-[2rem] border border-slate-100">
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 text-right">وقت الدخول</label>
+                    <input 
+                      type="datetime-local" 
+                      value={editingBill.startTime.slice(0, 16)} 
+                      onChange={(e) => handleUpdateTime('startTime', e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-black outline-none focus:border-indigo-400 text-right"
+                    />
+                 </div>
+                 <div className="bg-slate-50 p-4 rounded-[2rem] border border-slate-100">
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 text-right">وقت الخروج</label>
+                    <input 
+                      type="datetime-local" 
+                      value={new Date(editingBill.endTime).toISOString().slice(0, 16)} 
+                      onChange={(e) => handleUpdateTime('endTime', e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-black outline-none focus:border-indigo-400 text-right"
+                    />
+                 </div>
+              </div>
+
               {/* User Info */}
               <div className="bg-slate-50 p-6 rounded-3xl flex justify-between items-center border border-slate-100">
                 <div className="text-right">
@@ -446,19 +596,25 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
                 </div>
                 <div className="text-right">
                     <p className="text-slate-400 text-xs font-black uppercase mb-1">وقت الجلسة</p>
-                    <p className="font-black text-indigo-600">{editingBill.diffMinutes} دقيقة</p>
+                    <p className="font-black text-indigo-600">
+                       {Math.floor(editingBill.diffMinutes / 60)}h {editingBill.diffMinutes % 60}m
+                    </p>
                 </div>
                 <div className="text-right">
                     <p className="text-slate-400 text-xs font-black uppercase mb-1">مبلغ المكان</p>
-                    <input 
-                      type="number" 
-                      value={editingBill.workspaceAmount} 
-                      onChange={(e) => {
-                        const val = parseFloat(e.target.value) || 0;
-                        setEditingBill({...editingBill, workspaceAmount: val, totalAmount: parseFloat((val + editingBill.cateringAmount).toFixed(2))});
-                      }}
-                      className="w-24 text-center font-black bg-white border border-slate-200 rounded-lg px-2 py-1 focus:ring-2 ring-indigo-100 outline-none" 
-                    />
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-black opacity-30">EGP</span>
+                      <input 
+                        type="number" 
+                        value={editingBill.workspaceAmount} 
+                        onChange={(e) => {
+                          const val = parseFloat(e.target.value) || 0;
+                          setEditingBill({...editingBill, workspaceAmount: val, totalAmount: parseFloat((val + editingBill.cateringAmount).toFixed(2))});
+                        }}
+                        className={`w-20 text-center font-black bg-white border border-slate-200 rounded-lg px-2 py-1 focus:ring-2 ring-indigo-100 outline-none ${editingBill.isSubscribed ? 'opacity-30' : ''}`} 
+                        disabled={editingBill.isSubscribed}
+                      />
+                    </div>
                 </div>
               </div>
 
@@ -558,13 +714,33 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
                 <div className="space-y-4 font-bold text-slate-600">
                   <div className="flex justify-between items-center bg-white/50 p-4 rounded-2xl border border-white">
                     <span className="text-sm">وقت الاستخدام:</span>
-                    <span className="text-slate-900 mt-1 font-black">{checkoutBill.diffMinutes} دقيقة</span>
+                    <span className="text-slate-900 mt-1 font-black">
+                       {Math.floor(checkoutBill.diffMinutes / 60)}h {checkoutBill.diffMinutes % 60}m
+                    </span>
                   </div>
                   
                   <div className="flex justify-between items-center bg-white/50 p-4 rounded-2xl border border-white">
                     <span className="text-sm">قيمة مساحة العمل (10 ج/س):</span>
-                    <span className="text-indigo-600 font-black">{checkoutBill.workspaceAmount} EGP</span>
+                    <span className={`font-black ${checkoutBill.isSubscribed ? 'text-indigo-600' : 'text-slate-900'}`}>
+                       {checkoutBill.isSubscribed ? '✓ اشتراك ساعات' : `${checkoutBill.workspaceAmount} EGP`}
+                    </span>
                   </div>
+
+                  {checkoutBill.isSubscribed && (
+                    <div className="bg-indigo-900 text-white p-6 rounded-[2rem] shadow-lg relative overflow-hidden group">
+                      <div className="absolute top-0 right-0 w-full h-full bg-gradient-to-br from-white/10 to-transparent pointer-events-none" />
+                      <div className="flex justify-between items-center relative z-10">
+                        <div className="text-left">
+                          <p className="text-2xl font-black">{checkoutBill.remainingSubHours.toFixed(1)} <span className="text-[10px] opacity-40 uppercase">Hours Lasted</span></p>
+                          <p className="text-[8px] font-black text-indigo-300 uppercase tracking-widest mt-1">Expire Date: {new Date(checkoutBill.subEndDate).toLocaleDateString('ar-EG')}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-[10px] font-black text-indigo-200 uppercase tracking-widest mb-1">Subscription Summary</p>
+                          <p className="text-sm font-black whitespace-nowrap">{(Number(checkoutBill.usedHours) || 0).toFixed(2)}h used in this session</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                   
                   <div className="flex justify-between items-center bg-white/50 p-4 rounded-2xl border border-white">
                     <span className="text-sm">إجمالي طلبات المتجر:</span>
