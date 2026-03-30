@@ -172,7 +172,7 @@ export const DailyLog = ({ branchId }: { branchId?: string }) => {
     try {
       const { error } = await (supabase as any)
         .from('workspace_sessions')
-        .update({ status: 'active' })
+        .update({ status: 'active', end_time: null })
         .eq('id', sessionId);
 
       if (error) throw error;

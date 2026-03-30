@@ -120,6 +120,10 @@ export const WorkspaceLogin = () => {
 
   const handleCheckoutCart = async () => {
     if (Object.keys(cart).length === 0) return;
+    if (session?.status === 'checkout_requested') {
+      alert("لا يمكن إضافة طلبات بعد طلب إنهاء الجلسة، يرجى إلغاء الطلب أولاً أو مراجعة المسئول");
+      return;
+    }
     setOrderLoading(true);
     try {
       const cartEntries = Object.values(cart) as any[];
@@ -500,13 +504,25 @@ export const WorkspaceLogin = () => {
     if (!session) return;
     setLoading(true);
     try {
+      const checkoutTime = new Date().toISOString();
       const { error } = await supabase
         .from('workspace_sessions')
-        .update({ status: 'checkout_requested' })
+        .update({ 
+          status: 'checkout_requested',
+          end_time: checkoutTime // Set end_time immediately at request to lock the billable time
+        })
         .eq('id', session.id);
 
       if (error) throw error;
-      setSession({ ...session, status: 'checkout_requested' });
+      
+      // Broadcast to let admin know immediately
+      supabase.channel(`workspace_admin_sessions_${branchId}`).send({
+        type: 'broadcast',
+        event: 'session_updated',
+        payload: { sessionId: session.id, status: 'checkout_requested' }
+      });
+
+      setSession({ ...session, status: 'checkout_requested', end_time: checkoutTime });
     } catch (err: any) {
       alert('فشل إرسال طلب الخروج.');
     } finally {
@@ -551,6 +567,17 @@ export const WorkspaceLogin = () => {
           });
         }
       )
+      .on('broadcast', { event: 'session_updated' }, (payload) => {
+        const newData = payload.payload;
+        setSession((prev: any) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            status: newData.status,
+            end_time: newData.end_time || prev.end_time
+          };
+        });
+      })
       .subscribe();
 
     return () => {
@@ -727,7 +754,13 @@ export const WorkspaceLogin = () => {
                                 <span className="w-6 text-center text-white font-black">{cartEntry.quantity}</span>
                               </>
                             )}
-                            <button onClick={() => addToCart(item)} className="w-8 h-8 rounded-lg bg-indigo-500/20 text-indigo-400 flex items-center justify-center font-black hover:bg-indigo-500 hover:text-white transition-all">+</button>
+                            <button 
+                               onClick={() => addToCart(item)} 
+                               disabled={session?.status === 'checkout_requested'}
+                               className="w-8 h-8 rounded-lg bg-indigo-500/20 text-indigo-400 flex items-center justify-center font-black hover:bg-indigo-500 hover:text-white transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                             >
+                               +
+                             </button>
                           </div>
                         </div>
                       );

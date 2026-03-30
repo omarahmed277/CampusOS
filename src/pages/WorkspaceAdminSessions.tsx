@@ -9,6 +9,7 @@ interface Session {
   user_code: string;
   phone_number: string;
   start_time: string;
+  end_time?: string;
   status: string;
   catering_amount: number;
   orders: any[];
@@ -52,6 +53,9 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
           }
         }
       )
+      .on('broadcast', { event: 'session_updated' }, () => {
+        fetchSessions();
+      })
       .subscribe();
 
     return () => {
@@ -87,7 +91,11 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
   };
 
   const handlePrepareCheckout = (session: Session) => {
-    const endTime = new Date();
+    // If user already requested checkout, use the time they clicked (real-time)
+    // Otherwise use current time
+    const endTime = (session.status === 'checkout_requested' && session.end_time) 
+      ? new Date(session.end_time) 
+      : new Date();
     const startTime = new Date(session.start_time);
     const diffMs = endTime.getTime() - startTime.getTime();
     const diffMinutes = Math.max(1, Math.ceil(diffMs / 60000));
@@ -176,11 +184,18 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
     try {
       const { error } = await supabase
         .from('workspace_sessions')
-        .update({ status: 'active' })
+        .update({ status: 'active', end_time: null })
         .eq('id', sessionId);
 
       if (error) throw error;
       fetchSessions();
+
+      // Broadcast to user to resume counter
+      supabase.channel(`workspace_session_${sessionId}`).send({
+        type: 'broadcast',
+        event: 'session_updated',
+        payload: { id: sessionId, status: 'active', end_time: null }
+      });
     } catch (err: any) {
       alert('حدث خطأ أثناء إلغاء طلب الخروج');
       console.error(err);
