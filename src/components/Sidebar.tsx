@@ -48,12 +48,12 @@ export const Sidebar = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => v
       <div className="p-8 border-b border-white/5 relative overflow-hidden">
         {/* Decorative gradient orb */}
         <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/20 rounded-full blur-[40px] -z-10 pointer-events-none" />
-        <div className="flex items-center gap-4 group cursor-pointer">
-          <div className="w-12 h-12 bg-gradient-to-br from-indigo-500 to-violet-600 rounded-2xl flex items-center justify-center font-black text-2xl text-white shadow-lg shadow-indigo-500/30 ring-1 ring-white/20 group-hover:scale-105 transition-all duration-300">
-            C
+        <div className="flex items-center gap-4 group cursor-pointer" onClick={() => navigate('/dashboard')}>
+          <div className="w-12 h-12 bg-white/5 rounded-2xl flex items-center justify-center overflow-hidden shadow-lg shadow-indigo-500/10 ring-1 ring-white/20 group-hover:scale-105 transition-all duration-300">
+             <img src="/logo.png" alt="Cloud Logo" className="w-full h-full object-contain p-1" />
           </div>
           <h2 className="text-2xl font-black tracking-widest uppercase text-right text-transparent bg-clip-text bg-gradient-to-b from-white to-slate-400">
-            Campus
+            Cloud
           </h2>
         </div>
       </div>

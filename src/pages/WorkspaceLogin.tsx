@@ -894,15 +894,11 @@ export const WorkspaceLogin = () => {
 
       <div className="bg-white/5 backdrop-blur-2xl border border-white/10 rounded-[3rem] p-8 md:p-12 w-full max-w-md relative z-10 shadow-[0_0_50px_rgba(0,0,0,0.5)] animate-in zoom-in-95 duration-700">
         <div className="text-center mb-10">
-          {/* Logo Abstraction Using Brand Colors */}
-          <div className="flex items-center justify-center gap-1 mx-auto mb-6 h-16">
-             <div className="w-6 h-6 rounded-full border-4 border-[#1ed788] border-b-transparent rotate-[-45deg]"></div>
-             <div className="w-12 h-12 rounded-full border-[6px] border-[#1e75b9] border-b-transparent"></div>
-             <div className="w-5 h-5 rounded-full border-4 border-[#f78c2a] border-b-transparent rotate-45 mb-4"></div>
-             <div className="w-6 h-6 rounded-full border-4 border-rose-500 border-b-transparent rotate-45 mt-4"></div>
+          <div className="w-24 h-24 bg-white/5 backdrop-blur-md rounded-3xl mx-auto flex items-center justify-center mb-6 border border-white/10 shadow-2xl p-3">
+             <img src="/logo.png" alt="Cloud Logo" className="w-full h-full object-contain" />
           </div>
           
-          <h1 className="text-3xl font-black text-white mb-2 tracking-tight">مساحة العمل</h1>
+          <h1 className="text-3xl font-black text-white mb-2 tracking-tight">Cloud Co-Working Space</h1>
           <p className="text-slate-400 font-bold">{isForgotCode ? 'استعادة كود الدخول' : isSignUp ? 'أنشئ حساباً لبدء جلستك' : 'أدخل بياناتك لبدء جلستك'}</p>
         </div>
 

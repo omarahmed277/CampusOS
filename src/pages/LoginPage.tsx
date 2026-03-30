@@ -54,11 +54,11 @@ export const LoginPage = () => {
 
                     {/* Header */}
                     <div className="text-center mb-10">
-                        <div className="w-20 h-20 bg-gradient-to-tr from-indigo-500 to-blue-600 rounded-3xl mx-auto flex items-center justify-center mb-6 shadow-xl shadow-indigo-500/30 group-hover:scale-110 transition-transform duration-500">
-                            <span className="text-4xl font-black text-white">C</span>
+                        <div className="w-20 h-20 bg-white shadow-xl shadow-indigo-500/10 rounded-3xl mx-auto flex items-center justify-center mb-6 border border-white/10 group-hover:scale-110 transition-transform duration-500 overflow-hidden">
+                            <img src="/logo.png" alt="Cloud" className="w-full h-full object-contain p-2" />
                         </div>
                         <h1 className="text-3xl font-black text-white mb-2 tracking-tight">مرحباً بك مجدداً</h1>
-                        <p className="text-slate-300 font-medium">سجل الدخول للمتابعة إلى Campus Hub</p>
+                        <p className="text-slate-300 font-medium">سجل الدخول للمتابعة إلى Cloud Co-Working Space</p>
                         {error && (
                             <div className="mt-4 p-3 bg-rose-500/20 border border-rose-500/50 rounded-xl text-rose-200 text-sm font-bold">
                                 {error}
@@ -130,7 +130,7 @@ export const LoginPage = () => {
 
                 {/* Footer */}
                 <p className="text-center text-slate-500 mt-8 text-sm font-medium">
-                    © 2024 Campus Hub OS. All rights reserved.
+                    © 2024 Cloud Co-Working Space. All rights reserved.
                 </p>
             </div>
         </div>
