@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Clock, LogOut, CheckCircle2, Coffee, ShoppingBag, Info, HelpCircle, User, Sparkles, CalendarDays, ChevronLeft, Receipt, X } from 'lucide-react';
+import { Clock, LogOut, CheckCircle2, Coffee, ShoppingBag, Info, HelpCircle, User, Sparkles, CalendarDays, ChevronLeft, Receipt, X, Search, Package, RefreshCw, Plus, Cookie, Zap, Lock, Wind, PenTool, LayoutGrid, MapPin } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 // UI tabs options
@@ -11,6 +11,8 @@ export const WorkspaceLogin = () => {
   const [cart, setCart] = useState<{ [id: string]: { item: any, quantity: number } }>({});
   const [orderLoading, setOrderLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<activeTabType>('session');
+  const [storeCategory, setStoreCategory] = useState<'all' | 'kitchen' | 'office'>('all');
+  const [storeSearch, setStoreSearch] = useState('');
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [gender, setGender] = useState('Male');
@@ -169,6 +171,7 @@ export const WorkspaceLogin = () => {
       const newOrders = [...currentOrders, ...cartEntries.map(e => ({
         id: e.item.id,
         name: e.item.name,
+        image_url: e.item.image_url,
         price: e.item.selling_price || e.item.price,
         quantity: e.quantity,
         time: new Date().toISOString()
@@ -626,8 +629,13 @@ export const WorkspaceLogin = () => {
                   <div className="text-sm space-y-2 mt-4 pt-4 border-t border-white/10 opacity-90">
                       <p className="text-slate-400 font-bold mb-2 w-full text-right text-xs">تفاصيل القائمة:</p>
                       {session.orders.map((o: any, idx: number) => (
-                          <div key={idx} className="flex justify-between items-center text-slate-300 bg-black/20 p-2 rounded-lg">
-                              <span>- {o.name} <span className="text-[#f78c2a] text-xs font-bold">(x{o.quantity || 1})</span></span>
+                          <div key={idx} className="flex justify-between items-center text-slate-300 bg-black/20 p-2 rounded-lg gap-3">
+                              <div className="flex items-center gap-3">
+                                {o.image_url && (
+                                  <img src={o.image_url} className="w-10 h-10 rounded-lg object-cover border border-white/10" alt="" />
+                                )}
+                                <span>- {o.name} <span className="text-[#f78c2a] text-xs font-bold">(x{o.quantity || 1})</span></span>
+                              </div>
                               <span className="font-bold">{o.price} EGP</span>
                           </div>
                       ))}
@@ -715,132 +723,359 @@ export const WorkspaceLogin = () => {
           )}
           
           {activeTab === 'catering' && (
-            <div className="w-full max-w-lg mx-auto space-y-4 animate-in fade-in duration-300">
-                <h2 className="text-xl font-black text-white mb-6 text-center">متجر المساحة</h2>
+            <div className="w-full max-w-lg mx-auto space-y-6 animate-in fade-in duration-500 pb-20">
+                <div className="text-center space-y-2 mb-8">
+                  <h2 className="text-3xl font-black text-white tracking-tight">متجر سحابة</h2>
+                  <p className="text-slate-400 text-xs font-bold uppercase tracking-widest">Cloud Store & Catering</p>
+                </div>
                 
+                {/* Search & Categories Bar */}
+                <div className="space-y-4">
+                  <div className="relative group">
+                    <Search className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-indigo-400 transition-colors" size={20} />
+                    <input 
+                      type="text"
+                      placeholder="ابحث عن مشروب أو وجبة..."
+                      value={storeSearch}
+                      onChange={(e) => setStoreSearch(e.target.value)}
+                      className="w-full bg-white/5 border border-white/10 rounded-[2rem] pr-12 pl-6 py-4 text-white font-bold outline-none focus:border-indigo-500/50 focus:ring-4 focus:ring-indigo-500/10 transition-all placeholder:text-slate-600"
+                    />
+                  </div>
+
+                  <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide no-scrollbar">
+                    {[
+                      { id: 'all', label: 'الكل', icon: Sparkles },
+                      { id: 'kitchen', label: 'المشروبات والسناكس', icon: Coffee },
+                      { id: 'office', label: 'أدوات مكتبية', icon: Package }
+                    ].map(cat => (
+                      <button
+                        key={cat.id}
+                        onClick={() => setStoreCategory(cat.id as any)}
+                        className={`flex items-center gap-2 px-6 py-3 rounded-full font-black text-xs whitespace-nowrap transition-all border ${
+                          storeCategory === cat.id 
+                            ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-600/20 scale-105' 
+                            : 'bg-white/5 border-white/10 text-slate-400 hover:bg-white/10'
+                        }`}
+                      >
+                        <cat.icon size={14} />
+                        {cat.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 {/* Cart Summary Header */}
                 {Object.keys(cart).length > 0 && (
-                   <div className="bg-indigo-600/20 backdrop-blur-md border border-indigo-500/30 p-4 rounded-2xl flex justify-between items-center mb-6 animate-in slide-in-from-top-4">
-                     <div className="text-right">
-                       <p className="text-indigo-400 font-bold text-xs">سلة المشتريات</p>
-                       <p className="text-white font-black">{Object.values(cart).reduce((s, e) => s + (e as any).quantity, 0)} أصناف</p>
+                   <div className="bg-gradient-to-r from-indigo-600 to-indigo-700 p-[1px] rounded-[2rem] shadow-2xl shadow-indigo-600/30 group animate-in slide-in-from-top-4 duration-500">
+                     <div className="bg-[#0B0F19]/90 backdrop-blur-3xl p-5 rounded-[1.95rem] flex justify-between items-center relative overflow-hidden">
+                       <div className="absolute right-0 top-0 w-32 h-32 bg-indigo-500/10 rounded-full blur-3xl -z-10" />
+                       <div className="text-right">
+                         <div className="flex items-center gap-2 mb-1">
+                           <div className="w-2 h-2 bg-indigo-400 rounded-full animate-pulse" />
+                           <p className="text-indigo-400 font-bold text-[10px] uppercase tracking-widest">سلة التسوق النشطة</p>
+                         </div>
+                         <p className="text-white font-black text-xl">
+                            {(Object.values(cart) as any[]).reduce((sum, entry) => sum + ((entry.item.selling_price || entry.item.price) * entry.quantity), 0)}
+                            <span className="text-[10px] opacity-40 mr-1.5 uppercase tracking-tighter">EGP Total</span>
+                         </p>
+                       </div>
+                       <button 
+                         onClick={handleCheckoutCart}
+                         disabled={orderLoading}
+                         className="h-14 px-8 bg-indigo-600 text-white rounded-2xl font-black shadow-xl shadow-indigo-600/20 hover:bg-indigo-500 hover:-translate-y-1 transition-all active:scale-95 flex items-center gap-3"
+                       >
+                         {orderLoading ? <RefreshCw className="animate-spin" size={18} /> : (
+                           <>
+                             إتمام الطلب
+                             <CheckCircle2 size={20} />
+                           </>
+                         )}
+                       </button>
                      </div>
-                     <button 
-                       onClick={handleCheckoutCart}
-                       disabled={orderLoading}
-                       className="bg-indigo-600 text-white px-6 py-2 rounded-xl font-bold shadow-lg shadow-indigo-600/20 hover:bg-indigo-500 transition-all flex items-center gap-2"
-                     >
-                       {orderLoading ? 'جاري...' : 'إتمام الطلب'}
-                       <CheckCircle2 size={18} />
-                     </button>
                    </div>
                 )}
 
-                <div className="grid grid-cols-1 gap-3">
-                  {cateringItems.length > 0 ? cateringItems.map(item => {
-                      const cartEntry = cart[item.id];
-                      return (
-                        <div key={item.id} className="bg-[#0B0F19]/60 backdrop-blur-md border border-white/5 hover:border-indigo-500/50 transition-colors p-4 rounded-2xl flex justify-between items-center group shadow-lg">
-                          <div className="text-right flex-1">
-                              <p className="font-black text-white text-lg group-hover:text-indigo-400 transition-colors line-clamp-1 truncate ml-2" title={item.name}>{item.name}</p>
-                              <div className="flex items-center gap-2 mt-0.5">
-                                <p className="text-[#1ed788] font-black">{item.selling_price} EGP</p>
-                                <span className="text-[10px] text-slate-500 font-bold">| متوفر: {item.stock || 0}</span>
-                              </div>
-                          </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {cateringItems
+                    .filter(item => {
+                      const matchesSearch = item.name.toLowerCase().includes(storeSearch.toLowerCase());
+                      const matchesCat = storeCategory === 'all' || 
+                        (storeCategory === 'kitchen' && item.category === 'مطبخ وبوفيه') ||
+                        (storeCategory === 'office' && item.category === 'أدوات مكتبية');
+                      return matchesSearch && matchesCat;
+                    })
+                    .length > 0 ? (
+                      cateringItems
+                        .filter(item => {
+                           const matchesSearch = item.name.toLowerCase().includes(storeSearch.toLowerCase());
+                           const matchesCat = storeCategory === 'all' || 
+                             (storeCategory === 'kitchen' && item.category === 'مطبخ وبوفيه') ||
+                             (storeCategory === 'office' && item.category === 'أدوات مكتبية');
+                           return matchesSearch && matchesCat;
+                        })
+                        .map(item => {
+                          const cartEntry = cart[item.id];
+                          const isLowStock = (item.stock || 0) <= 5;
                           
-                          <div className="flex items-center gap-2 bg-white/5 p-1 rounded-xl">
-                            {cartEntry && (
-                              <>
-                                <button onClick={() => removeFromCart(item.id)} className="w-8 h-8 rounded-lg bg-rose-500/20 text-rose-500 flex items-center justify-center font-black">-</button>
-                                <span className="w-6 text-center text-white font-black">{cartEntry.quantity}</span>
-                              </>
-                            )}
-                            <button 
-                               onClick={() => addToCart(item)} 
-                               disabled={session?.status === 'checkout_requested'}
-                               className="w-8 h-8 rounded-lg bg-indigo-500/20 text-indigo-400 flex items-center justify-center font-black hover:bg-indigo-500 hover:text-white transition-all disabled:opacity-30 disabled:cursor-not-allowed"
-                             >
-                               +
-                             </button>
-                          </div>
-                        </div>
-                      );
-                  }) : (
-                      <div className="py-12 flex flex-col items-center justify-center text-slate-400 bg-[#0B0F19]/60 border border-white/5 rounded-3xl">
-                        <ShoppingBag size={48} className="text-slate-600 mb-4 opacity-50" />
-                        <p className="font-bold">القائمة غير متاحة حالياً</p>
-                      </div>
-                  )}
+                          // Dynamic Color/Icon logic
+                          const name = item.name.toLowerCase();
+                          const isDrink = name.includes('قهوة') || name.includes('نسكافيه') || name.includes('شاي') || name.includes('كولا') || name.includes('بيبسي') || name.includes('ماء') || name.includes('عصير');
+                          const isSnack = name.includes('شيبس') || name.includes('بسكويت') || name.includes('كرواسون') || name.includes('مولتو') || name.includes('سندوتش');
+                          const isOffice = item.category === 'أدوات مكتبية';
+
+                          let typeColor = 'bg-indigo-500/10 text-indigo-400';
+                          let typeGlow = 'from-indigo-500/20 to-blue-500/20';
+                          let Icon = Coffee;
+
+                          if (isDrink) {
+                            typeColor = 'bg-blue-500/10 text-blue-400';
+                            typeGlow = 'from-blue-500/30 to-cyan-500/10';
+                            Icon = Coffee;
+                          } else if (isSnack) {
+                            typeColor = 'bg-amber-500/10 text-amber-400';
+                            typeGlow = 'from-amber-500/30 to-orange-500/10';
+                            Icon = Cookie;
+                          } else if (isOffice) {
+                            typeColor = 'bg-rose-500/10 text-rose-400';
+                            typeGlow = 'from-rose-500/30 to-pink-500/10';
+                            Icon = PenTool;
+                          }
+
+                          return (
+                            <div key={item.id} className="relative group/card h-full">
+                              <div className={`absolute inset-0 rounded-[2.5rem] bg-gradient-to-br transition-all duration-500 blur-xl opacity-0 group-hover/card:opacity-30 ${typeGlow}`} />
+                              <div className="bg-[#0B0F19]/80 backdrop-blur-3xl border border-white/5 hover:border-white/10 rounded-[2.5rem] flex flex-col relative overflow-hidden h-full shadow-2xl transition-all duration-300 hover:-translate-y-1">
+                                 {/* Product Image Section - Enhanced Cropping & Premium Look */}
+                                 <div className="h-48 relative overflow-hidden group/img border-b border-white/5">
+                                    {item.image_url && item.image_url.trim() !== '' ? (
+                                      <img 
+                                        src={item.image_url} 
+                                        alt={item.name} 
+                                        className="w-full h-full object-cover object-center transition-transform duration-700 group-hover/card:scale-110" 
+                                      />
+                                    ) : (
+                                      <div className={`w-full h-full flex items-center justify-center bg-gradient-to-br ${typeGlow} opacity-30`}>
+                                         <Icon size={58} className="opacity-20 translate-y-2" />
+                                      </div>
+                                    )}
+                                    <div className="absolute inset-0 bg-gradient-to-t from-[#0B0F19] via-transparent to-black/10 opacity-70" />
+                                    
+                                    {/* Premium Price Tag Overlay */}
+                                    <div className="absolute top-5 left-5 bg-indigo-600/80 backdrop-blur-xl border border-white/10 px-4 py-2 rounded-2xl shadow-[0_8px_32px_rgba(79,70,229,0.4)] transform -rotate-1 group-hover/card:rotate-0 transition-transform">
+                                       <div className="text-xl font-black text-white leading-none flex items-baseline gap-1">
+                                         {item.selling_price}
+                                         <span className="text-[10px] opacity-60 uppercase tracking-tighter">EGP</span>
+                                       </div>
+                                    </div>
+ 
+                                    {isLowStock && (
+                                       <div className="absolute bottom-4 right-5 bg-rose-500/90 backdrop-blur-md text-white text-[9px] font-black px-3 py-1.5 rounded-xl animate-pulse border border-rose-400/30 uppercase tracking-[0.2em]">
+                                         رصيد محدود
+                                       </div>
+                                    )}
+                                 </div>
+
+                                <div className="p-6 flex flex-col flex-1">
+                                  <div className="flex justify-between items-start mb-2">
+                                    <div className={`p-2.5 rounded-xl shadow-lg ${typeColor}`}>
+                                      <Icon size={18}/>
+                                    </div>
+                                    <div className="flex items-center gap-1 opacity-40">
+                                       <LayoutGrid size={10} />
+                                       <p className="text-[10px] font-bold uppercase tracking-widest">{isDrink ? 'مشروبات' : isSnack ? 'سناكس' : isOffice ? 'أدوات' : 'أخرى'}</p>
+                                    </div>
+                                  </div>
+
+                                  <div className="text-right flex-1 mb-4">
+                                      <p className="font-extrabold text-white text-lg leading-snug group-hover/card:text-indigo-300 transition-colors tracking-tight line-clamp-2">{item.name}</p>
+                                  </div>
+                                  
+                                  <div className="flex items-center gap-2">
+                                    {cartEntry ? (
+                                    <div className="flex flex-1 items-center justify-between bg-white/5 p-1 rounded-2xl border border-white/10 shadow-[inset_0_2px_10px_rgba(0,0,0,0.5)]">
+                                      <button 
+                                        onClick={() => removeFromCart(item.id)} 
+                                        className="w-10 h-10 rounded-xl bg-white/5 text-slate-400 flex items-center justify-center font-black transition-all hover:bg-rose-500 hover:text-white active:scale-90"
+                                      >
+                                        <X size={16} strokeWidth={4} />
+                                      </button>
+                                      <span className="text-xl text-white font-black">{cartEntry.quantity}</span>
+                                      <button 
+                                        onClick={() => addToCart(item)} 
+                                        disabled={session?.status === 'checkout_requested'}
+                                        className="w-10 h-10 rounded-xl bg-white/5 text-slate-400 flex items-center justify-center font-black transition-all hover:bg-emerald-500 hover:text-white active:scale-90 disabled:opacity-30"
+                                      >
+                                        <Plus size={16} strokeWidth={4} />
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <button 
+                                       onClick={() => addToCart(item)} 
+                                       disabled={session?.status === 'checkout_requested' || (item.stock || 0) <= 0}
+                                       className="w-full h-14 rounded-2xl bg-white/5 hover:bg-indigo-600 text-slate-300 hover:text-white border border-white/5 hover:border-indigo-500 transition-all font-black text-sm flex items-center justify-center gap-3 disabled:opacity-20 disabled:pointer-events-none group/btn shadow-lg"
+                                     >
+                                       { (item.stock || 0) <= 0 ? 'نفذت الكمية' : (
+                                          <>
+                                            أضف لطلبك
+                                            <div className="p-1.5 bg-white/10 rounded-lg group-hover/btn:bg-white/20 transition-colors">
+                                              <Plus size={18} className="group-hover/btn:rotate-90 transition-transform"/>
+                                            </div>
+                                          </>
+                                       )}
+                                     </button>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                          )
+                        })
+                ) : (
+                  <div className="col-span-full py-24 flex flex-col items-center justify-center text-slate-600 bg-white/2 backdrop-blur-md border border-white/5 border-dashed rounded-[3rem]">
+                    <div className="w-24 h-24 bg-white/5 rounded-full flex items-center justify-center mb-8 relative">
+                      <ShoppingBag size={48} className="text-slate-700 opacity-20" />
+                      <div className="absolute inset-0 bg-indigo-500/5 blur-3xl rounded-full animate-pulse" />
+                    </div>
+                    <p className="font-black text-xl text-slate-500">لم يتم العثور على نتائج</p>
+                    <button onClick={() => { setStoreSearch(''); setStoreCategory('all'); }} className="mt-4 px-6 py-2 bg-indigo-600/10 text-indigo-400 rounded-full text-[10px] font-black uppercase tracking-widest hover:bg-indigo-600 hover:text-white transition-all">العودة للرئيسية</button>
+                  </div>
+                )
+              }
                 </div>
                 
                 {session.orders?.length > 0 && (
-                    <div className="mt-12 pt-8 border-t border-white/10 text-right">
-                        <h3 className="font-black text-indigo-400 mb-5 flex gap-2 items-center text-lg">
-                           <Coffee size={24}/> سجل مشتريات الجلسة
-                        </h3>
-                        <div className="space-y-3">
-                            {session.orders.map((o: any, idx: number) => (
-                                <div key={idx} className="flex justify-between items-center text-sm font-bold text-slate-300 bg-white/5 px-5 py-4 rounded-2xl border border-white/5 group hover:bg-white/10 transition-colors">
-                                  <div className="flex items-center gap-3">
-                                    <span className="w-8 h-8 rounded-lg bg-indigo-500/10 text-indigo-400 flex items-center justify-center text-xs">{o.quantity}x</span>
-                                    <span>{o.name}</span>
-                                  </div>
-                                  <span className="text-white font-black">{(o.price * o.quantity).toLocaleString()} EGP</span>
+                    <div className="mt-24 pt-12 border-t-2 border-dashed border-white/5 text-right animate-in fade-in slide-in-from-bottom-10 duration-1000">
+                        <div className="flex flex-col items-center mb-10">
+                          <div className="w-20 h-20 bg-indigo-500/10 text-indigo-400 rounded-[2rem] flex items-center justify-center mb-4 shadow-2xl shadow-indigo-500/10 border border-white/5">
+                            <Receipt size={36}/>
+                          </div>
+                          <h3 className="font-black text-white text-3xl tracking-tight">قائمة الطلبات المستلمة</h3>
+                          <p className="text-slate-500 text-[10px] font-extrabold uppercase tracking-[0.3em] mt-3 opacity-60">Verified Order Summary</p>
+                        </div>
+
+                        <div className="bg-[#0B0F19]/60 backdrop-blur-xl rounded-[3rem] p-10 border border-white/5 shadow-[inset_0_2px_40px_rgba(0,0,0,0.4)] relative overflow-hidden">
+                            <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-600/5 rounded-full blur-[80px] -z-10" />
+                            <div className="space-y-6">
+                                {session.orders.map((o: any, idx: number) => (
+                                    <div key={idx} className="flex justify-between items-center group/order">
+                                      <div className="flex items-center gap-5">
+                                        <div className="w-12 h-12 rounded-2xl bg-white/5 flex flex-col items-center justify-center text-[10px] font-black text-white border border-white/5 group-hover/order:bg-indigo-600 transition-colors">
+                                          <span>{o.quantity}</span>
+                                          <span className="opacity-40 text-[7px] uppercase leading-none mt-0.5">Qty</span>
+                                        </div>
+                                        <div className="text-right">
+                                           <p className="text-white text-base font-black group-hover/order:text-indigo-300 transition-colors uppercase tracking-tight">{o.name}</p>
+                                           <p className="text-[10px] text-slate-500 font-bold mt-0.5 underline decoration-indigo-500/30 underline-offset-4">{o.price} EGP per unit</p>
+                                        </div>
+                                      </div>
+                                      <div className="flex items-center gap-1">
+                                        <span className="text-emerald-400 font-mono text-lg font-black tracking-tighter">{(o.price * o.quantity).toFixed(2)}</span>
+                                        <span className="text-[8px] text-slate-500 font-black rotate-90">EGP</span>
+                                      </div>
+                                    </div>
+                                ))}
+                            </div>
+                            
+                            <div className="mt-12 pt-8 border-t border-white/10 flex justify-between items-center">
+                                <div className="text-right">
+                                  <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-2 flex items-center gap-2">
+                                     <MapPin size={10} className="text-indigo-400" /> الفرع الرئيسي
+                                  </p>
+                                  <p className="text-4xl font-black text-white leading-none">
+                                    {(session.catering_amount || 0).toLocaleString()}
+                                    <span className="text-xs text-indigo-400 mr-3 font-bold uppercase tracking-tighter">Total EGP</span>
+                                  </p>
                                 </div>
-                            ))}
-                            <div className="pt-4 border-t border-white/5 flex justify-between items-center text-lg font-black text-[#1ed788]">
-                                <span>إجمالي الكافيتريا</span>
-                                <span>{session.catering_amount || 0} EGP</span>
+                                <div className="bg-white/5 border border-white/10 rounded-2xl px-6 py-3 flex flex-col items-center">
+                                   <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">Status</p>
+                                   <div className="flex items-center gap-2 text-emerald-400">
+                                      <CheckCircle2 size={16} />
+                                      <span className="text-xs font-black uppercase">Confirmed</span>
+                                   </div>
+                                </div>
                             </div>
                         </div>
+                        
+                        <p className="text-center text-slate-600 text-[10px] font-bold mt-12 tracking-[0.3em] uppercase opacity-40">Thank you for visiting Cloud Space</p>
                     </div>
                 )}
             </div>
           )}
 
           {activeTab === 'about' && (
-            <div className="w-full max-w-lg mx-auto flex flex-col animate-in fade-in duration-300 space-y-6">
-              <div className="bg-[#0B0F19]/60 backdrop-blur-xl border border-white/5 p-8 rounded-3xl relative overflow-hidden shadow-2xl text-right">
-                <div className="absolute top-0 left-0 w-32 h-32 bg-[#1e75b9]/20 rounded-full blur-[40px]" />
-                <h2 className="text-2xl font-black text-white mb-6 relative z-10 flex items-center gap-3">
-                  <span className="w-2 h-8 bg-[#1e75b9] rounded-full inline-block"></span> من نحن
-                </h2>
-                <div className="space-y-4 relative z-10 text-slate-300">
-                  <p className="leading-relaxed text-sm font-bold">
-                    تم تصميم مساحتنا خصيصاً لتوفير بيئة عمل ودراسة هادئة واحترافية، تُعزز من إنتاجيتك وتحافظ على تركيزك.
-                  </p>
-                  <p className="leading-relaxed text-sm">
-                    نحن نقدم لك كافة الخدمات التي تحتاجها (إنترنت فائق السرعة، مشروبات طازجة، بيئة مكيّفة، وغرف اجتماعات خاصة).
-                  </p>
+            <div className="w-full max-w-lg mx-auto flex flex-col animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-8 pb-20">
+              <div className="bg-[#0B0F19]/60 backdrop-blur-3xl border border-white/5 p-10 md:p-12 rounded-[2.5rem] relative overflow-hidden shadow-2xl text-right">
+                <div className="absolute top-0 left-0 w-64 h-64 bg-[#1e75b9]/20 rounded-full blur-[100px] -translate-x-12 -translate-y-12" />
+                <div className="absolute bottom-0 right-0 w-64 h-64 bg-[#1ed788]/10 rounded-full blur-[80px] translate-x-20 translate-y-20" />
+                
+                <div className="relative z-10 text-center mb-12">
+                   <h2 className="text-4xl font-black text-white mb-4 tracking-tighter">Cloud Co-Working</h2>
+                   <div className="h-1.5 w-20 bg-indigo-500 mx-auto rounded-full shadow-[0_0_15px_rgba(99,102,241,0.5)]" />
+                   <p className="text-slate-400 mt-6 font-bold leading-relaxed max-w-sm mx-auto">
+                      المكان الأمثل الذي يجمع بين هدوء التركيز، وحيوية الإبداع، وخدمات الضيافة الراقية.
+                   </p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 relative z-10">
+                  {[
+                    { title: 'إنترنت فائق', desc: 'سرعات تصل لـ 200 ميجا لتحميل شغلك بلا توقف.', icon: Zap, color: 'text-indigo-400' },
+                    { title: 'هدوء كامل', desc: 'عزل صوتي تام يضمن لك أقصى درجات التركيز.', icon: Wind, color: 'text-blue-400' },
+                    { title: 'أمان وخصوصية', desc: 'خزائن خاصة ونظام غرف اجتماعات محمي.', icon: Lock, color: 'text-emerald-400' },
+                    { title: 'ضيافة مميزة', desc: 'مشروبات وسناكس من اختيارك طوال اليوم.', icon: Coffee, color: 'text-amber-400' }
+                  ].map((item, idx) => (
+                    <div key={idx} className="bg-white/5 border border-white/5 p-6 rounded-[2rem] group hover:bg-white/10 transition-all duration-300">
+                      <item.icon className={`${item.color} mb-4 group-hover:scale-110 transition-transform`} size={28} />
+                      <h4 className="text-white font-black text-lg mb-2">{item.title}</h4>
+                      <p className="text-slate-500 text-xs font-bold leading-relaxed">{item.desc}</p>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="mt-12 pt-8 border-t border-white/5 text-center relative z-10">
+                   <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.4em]">Designed for Pioneers</p>
                 </div>
               </div>
             </div>
           )}
 
           {activeTab === 'how_work' && (
-            <div className="w-full max-w-lg mx-auto flex flex-col animate-in fade-in duration-300 text-right">
-              <div className="bg-[#0B0F19]/60 backdrop-blur-xl border border-white/5 p-8 rounded-3xl relative overflow-hidden shadow-2xl text-right">
-                <div className="absolute top-0 right-0 w-32 h-32 bg-[#1ed788]/10 rounded-full blur-[40px]" />
-                <h2 className="text-2xl font-black text-white mb-6 relative z-10 flex items-center gap-3">
-                  <span className="w-2 h-8 bg-[#1ed788] rounded-full inline-block"></span> سياسة النظام
-                </h2>
-                <ul className="space-y-4 relative z-10">
+            <div className="w-full max-w-lg mx-auto flex flex-col animate-in fade-in slide-in-from-bottom-4 duration-500 text-right pb-20">
+              <div className="bg-[#0B0F19]/60 backdrop-blur-3xl border border-white/5 p-12 rounded-[2.5rem] relative overflow-hidden shadow-2xl">
+                <div className="absolute top-0 right-0 w-80 h-80 bg-[#1ed788]/20 rounded-full blur-[100px] translate-x-20 -translate-y-20" />
+                
+                <div className="text-center mb-16 relative z-10">
+                  <h2 className="text-4xl font-black text-white mb-4 tracking-tighter">دليل الاستخدام</h2>
+                  <p className="text-slate-400 font-bold uppercase tracking-[0.2em] text-[10px]">Cloud Membership Roadmap</p>
+                </div>
+
+                <div className="space-y-12 relative z-10">
                   {[
-                     { title: 'بدء الجلسة', desc: 'يبدأ العداد فور تسجيلك للدخول عبر هذه المنصة.' },
-                     { title: 'التكلفة بالدقيقة', desc: 'تكلفة الساعة 10 جنيهات، والحساب يتم بنظام كسور الساعات.' },
-                     { title: 'الحد الأدنى', desc: 'أقل تكلفة لدخول المساحة هي 10 جنيهات.' },
-                     { title: 'المتجر اللحظي', desc: 'تضاف طلباتك من المتجر مباشرة إلى حسابك.' }
+                     { title: 'تسجيل الدخول', desc: 'بمجرد كتابة الكود الخاص بك، سيبدأ العداد في العمل تلقائياً.', icon: Clock, color: 'bg-indigo-500' },
+                     { title: 'نظام محاسبة الدقيقة', desc: 'ساعة العمل بـ 10 جنيهات فقط، والحساب يتم بالدقيقة لضمان حقك.', icon: Zap, color: 'bg-blue-500' },
+                     { title: 'الحد الأدنى للدخول', desc: 'أقل تكلفة للزيارة هي 10 جنيهات فقط (أول ساعة).', icon: User, color: 'bg-emerald-500' },
+                     { title: 'طلبات الكافيتريا', desc: 'كل ما تطلبه من المتجر يضاف فوراً لفاتورتك وتتم المحاسبة عند الخروج.', icon: ShoppingBag, color: 'bg-amber-500' }
                   ].map((item, idx) => (
-                    <li key={idx} className="flex gap-3 items-start bg-black/20 p-4 rounded-xl border border-white/5 shadow-inner">
-                      <div className="w-7 h-7 rounded-full bg-[#1e75b9]/20 flex items-center justify-center font-black text-[#1e75b9] text-xs shrink-0 mt-0.5">{idx + 1}</div>
-                      <div>
-                        <strong className="text-white text-sm block mb-1">{item.title}</strong>
-                        <span className="text-xs text-slate-400 leading-relaxed block">{item.desc}</span>
+                    <div key={idx} className="flex gap-6 relative">
+                      {idx !== 3 && <div className="absolute top-12 bottom-[-48px] right-6 w-1 bg-gradient-to-b from-white/10 to-transparent rounded-full" />}
+                      <div className={`w-12 h-12 rounded-2xl ${item.color} flex items-center justify-center font-black text-white shadow-xl shadow-black/20 shrink-0 z-10 relative group-hover:scale-110 transition-transform`}>
+                        <item.icon size={22} strokeWidth={2.5} />
                       </div>
-                    </li>
+                      <div className="bg-white/5 border border-white/5 p-6 rounded-[2rem] flex-1 hover:bg-white/10 transition-all">
+                        <strong className="text-white text-lg font-black block mb-2">{item.title}</strong>
+                        <span className="text-sm text-slate-400 font-bold leading-relaxed block">{item.desc}</span>
+                      </div>
+                    </div>
                   ))}
-                </ul>
+                </div>
+
+                <div className="mt-16 text-center">
+                   <button 
+                     onClick={() => setActiveTab('session')} 
+                     className="bg-emerald-500 hover:bg-emerald-600 text-white px-10 py-4 rounded-2xl font-black transition-all shadow-xl shadow-emerald-500/20 active:scale-95"
+                   >
+                     فهمت، لنبدأ الجلسة
+                   </button>
+                </div>
               </div>
             </div>
           )}
@@ -1288,8 +1523,13 @@ const FinalReceiptModal = ({ bill, onClose }: { bill: any, onClose: () => void }
                     <p className="text-[10px] font-black text-slate-400 mb-4 uppercase tracking-[0.2em] text-center">أصناف الكافيتريا</p>
                     <div className="space-y-2">
                       {bill.orders.map((o: any, idx: number) => (
-                        <div key={idx} className="flex justify-between items-center text-xs font-black bg-white rounded-xl p-3 border border-slate-50 shadow-sm">
-                          <span className="text-slate-500">{o.name} <span className="opacity-40 ml-1">x{o.quantity}</span></span>
+                        <div key={idx} className="flex justify-between items-center text-xs font-black bg-white rounded-xl p-3 border border-slate-50 shadow-sm gap-3">
+                          <div className="flex items-center gap-2">
+                            {o.image_url && (
+                              <img src={o.image_url} className="w-8 h-8 rounded-lg object-cover border border-slate-100" alt="" />
+                            )}
+                            <span className="text-slate-500">{o.name} <span className="opacity-40 ml-1">x{o.quantity}</span></span>
+                          </div>
                           <span className="text-slate-900 font-mono">{o.price} EGP</span>
                         </div>
                       ))}

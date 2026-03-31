@@ -319,7 +319,8 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
           phone_number: customer?.phone || 'غير مسجل',
           status: 'active',
           branch_id: branchId,
-          start_time: new Date().toISOString()
+          start_time: new Date().toISOString(),
+          created_at: new Date().toISOString()
         });
 
       if (error) throw error;

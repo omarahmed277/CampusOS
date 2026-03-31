@@ -92,7 +92,8 @@ export const RoomsStatus = ({ branchId }: { branchId?: string }) => {
         phone_number: finalPhone,
         start_time: startTime.toISOString(),
         end_time: endTime.toISOString(),
-        status: 'active'
+        status: 'active',
+        created_at: new Date().toISOString()
       });
 
       if (error) throw error;

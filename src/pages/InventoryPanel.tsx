@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Package, Search, Filter, TrendingUp, AlertTriangle, ArrowDown, ArrowUp, RefreshCcw, Coffee, Printer, Trash2, Plus, X, Edit, Save } from 'lucide-react';
+import { Package, Search, Filter, TrendingUp, AlertTriangle, ArrowDown, ArrowUp, RefreshCcw, Coffee, Printer, Trash2, Plus, X, Edit, Save, Image as ImageIcon } from 'lucide-react';
 import { Button, Card, CardHeader, CardTitle, CardContent, Badge, Input } from '../components/ui';
 import { supabase } from '../lib/supabase';
 
@@ -18,7 +18,8 @@ export const InventoryPanel = ({ branchId }: { branchId?: string }) => {
         unit: 'كرتونة',
         price: 0, // This will store COST per piece
         pieces_per_unit: 1,
-        selling_price: 0
+        selling_price: 0,
+        image_url: ''
     });
     const [adding, setAdding] = useState(false);
     
@@ -26,6 +27,12 @@ export const InventoryPanel = ({ branchId }: { branchId?: string }) => {
     const [editingItem, setEditingItem] = useState<any>(null);
     const [updating, setUpdating] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
+    
+    // New states for "typing-friendly" numeric inputs
+    const [boxCostStr, setBoxCostStr] = useState('');
+    const [sellPriceStr, setSellPriceStr] = useState('');
+    const [cartonQuantityStr, setCartonQuantityStr] = useState('0');
+    const [editCartonQuantityStr, setEditCartonQuantityStr] = useState('0');
 
     useEffect(() => {
         fetchInventory();
@@ -64,17 +71,62 @@ export const InventoryPanel = ({ branchId }: { branchId?: string }) => {
 
     const fetchLogs = async () => {
         try {
-            let query = supabase.from('inventory_logs')
-                .select('*, inventory!inner(name, branch_id)')
+            let query = supabase
+                .from('inventory_logs')
+                .select(`
+                    *,
+                    inventory:inventory_id(name)
+                `)
                 .order('created_at', { ascending: false })
-                .limit(10);
-            if (branchId) query = query.eq('inventory.branch_id', branchId);
+                .limit(20);
+            
+            if (branchId) query = query.eq('branch_id', branchId);
             
             const { data, error } = await query;
             if (error) throw error;
             setLogs(data || []);
-        } catch (error) {
-            console.error('Error fetching logs:', error);
+        } catch (err) {
+            console.error('Error fetching logs:', err);
+        }
+    };
+
+    const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>, isEdit: boolean = false) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        // Check if file is image
+        if (!file.type.startsWith('image/')) {
+            alert('يرجى اختيار ملف صور صالح');
+            return;
+        }
+
+        try {
+            // Use a temporary uploading state if possible, but for now we'll use loading
+            setLoading(true);
+            const fileExt = file.name.split('.').pop();
+            const fileName = `${Math.random().toString(36).substring(2)}.${fileExt}`;
+            const filePath = `inventory/${branchId || 'default'}/${fileName}`;
+
+            const { data, error } = await supabase.storage
+                .from('inventory-images')
+                .upload(filePath, file);
+
+            if (error) throw error;
+
+            const { data: { publicUrl } } = supabase.storage
+                .from('inventory-images')
+                .getPublicUrl(filePath);
+
+            if (isEdit && editingItem) {
+                setEditingItem({ ...editingItem, image_url: publicUrl });
+            } else {
+                setNewItem({ ...newItem, image_url: publicUrl });
+            }
+        } catch (err) {
+            console.error('Error uploading image:', err);
+            alert('حدث خطأ أثناء رفع الصورة');
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -107,6 +159,7 @@ export const InventoryPanel = ({ branchId }: { branchId?: string }) => {
                 price: Number(newItem.price) || 0, // COST per piece
                 pieces_per_unit: Number(newItem.pieces_per_unit) || 1,
                 selling_price: Number(newItem.selling_price) || 0,
+                image_url: newItem.image_url || null,
                 branch_id: branchId || null,
                 last_restock: new Date().toISOString()
             }]).select().single();
@@ -143,6 +196,9 @@ export const InventoryPanel = ({ branchId }: { branchId?: string }) => {
             
             setIsAddModalOpen(false);
             setNewItem({ name: '', category: 'مطبخ وبوفيه', stock: 0, min_stock: 12, unit: 'كرتونة', price: 0, pieces_per_unit: 1, selling_price: 0 });
+            setBoxCostStr('');
+            setSellPriceStr('');
+            setCartonQuantityStr('0');
             fetchInventory();
             alert('تم إضافة الصنف وإعداد إحصائيات الأرباح بنجاح');
         } catch (error: any) {
@@ -164,10 +220,14 @@ export const InventoryPanel = ({ branchId }: { branchId?: string }) => {
     };
 
     const handleEditClick = (item: any) => {
-        setEditingItem({ 
+        const itemCopy = { 
             ...item, 
             selling_price: item.selling_price || item.catering_items?.[0]?.price || 0 
-        });
+        };
+        setEditingItem(itemCopy);
+        setBoxCostStr((Number(itemCopy.price) * (itemCopy.pieces_per_unit || 1)).toString());
+        setSellPriceStr((itemCopy.selling_price || 0).toString());
+        setEditCartonQuantityStr((itemCopy.stock / (itemCopy.pieces_per_unit || 1)).toString());
         setIsEditModalOpen(true);
     };
 
@@ -192,6 +252,7 @@ export const InventoryPanel = ({ branchId }: { branchId?: string }) => {
                 price: Number(editingItem.price),
                 pieces_per_unit: Number(editingItem.pieces_per_unit) || 1,
                 selling_price: sellingPriceVal,
+                image_url: editingItem.image_url || null,
                 last_restock: new Date().toISOString()
             };
 
@@ -217,6 +278,7 @@ export const InventoryPanel = ({ branchId }: { branchId?: string }) => {
             console.log("--- [UPDATE TRACE REFRESH COMPLETE] ---");
             setIsEditModalOpen(false);
             setEditingItem(null);
+            setEditCartonQuantityStr('0');
             alert('تم حفظ البيانات والمزامنة مع إحصائيات الأرباح بنجاح');
         } catch (error: any) {
             console.error('Error updating item:', error);
@@ -368,10 +430,31 @@ export const InventoryPanel = ({ branchId }: { branchId?: string }) => {
                             </button>
                         </div>
                         <form onSubmit={handleAddItem} className="space-y-4">
-                            <div>
-                                <label className="block text-sm font-bold text-slate-600 mb-2">اسم الصنف</label>
-                                <input required type="text" value={newItem.name} onChange={e => setNewItem({ ...newItem, name: e.target.value })} className="w-full border-2 border-slate-100 rounded-xl px-4 py-3" />
-                            </div>
+                            <div className="flex gap-4">
+                                <div className="flex-1">
+                                    <label className="block text-sm font-bold text-slate-600 mb-2">اسم الصنف</label>
+                                    <input required type="text" value={newItem.name} onChange={e => setNewItem({ ...newItem, name: e.target.value })} className="w-full border-2 border-slate-100 rounded-xl px-4 py-3" />
+                                </div>
+                                <div className="w-24 h-24 bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl flex items-center justify-center overflow-hidden relative group cursor-pointer">
+                                    <input 
+                                        type="file" 
+                                        accept="image/*" 
+                                        className="absolute inset-0 opacity-0 cursor-pointer z-20" 
+                                        onChange={(e) => handleImageUpload(e, false)}
+                                    />
+                                    {newItem.image_url ? (
+                                        <img src={newItem.image_url} className="w-full h-full object-cover" />
+                                    ) : (
+                                        <div className="text-center">
+                                            {loading ? <RefreshCcw size={20} className="text-indigo-400 mx-auto animate-spin" /> : <ImageIcon size={20} className="text-slate-300 mx-auto" />}
+                                            <p className="text-[8px] text-slate-400 mt-1 font-black">صورة</p>
+                                        </div>
+                                    )}
+                                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity z-10">
+                                        <Plus size={16} className="text-white" />
+                                    </div>
+                                </div>
+                             </div>
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
                                     <label className="block text-sm font-bold text-slate-600 mb-2">التصنيف</label>
@@ -402,11 +485,15 @@ export const InventoryPanel = ({ branchId }: { branchId?: string }) => {
                                         <label className="block text-[10px] font-bold text-slate-500 mb-1 text-right text-indigo-500 font-['Cairo']">سعر الكرتونة (شامل)</label>
                                         <input 
                                             required
-                                            type="number" 
-                                            min="0" 
-                                            value={(newItem.price * newItem.pieces_per_unit).toFixed(2)} 
+                                            type="text"
+                                            inputMode="decimal"
+                                            value={boxCostStr} 
                                             onChange={e => {
-                                                const boxCost = Number(e.target.value);
+                                                const val = e.target.value.replace(/[^0-9.]/g, '');
+                                                const parts = val.split('.');
+                                                const cleanVal = parts[0] + (parts.length > 1 ? '.' + parts.slice(1).join('') : '');
+                                                setBoxCostStr(cleanVal);
+                                                const boxCost = parseFloat(cleanVal) || 0;
                                                 setNewItem({ ...newItem, price: boxCost / (newItem.pieces_per_unit || 1) });
                                             }} 
                                             className="w-full border-2 border-indigo-200 bg-white rounded-xl px-4 py-3 text-center font-black text-indigo-700 shadow-sm outline-none focus:border-indigo-500 transition-all font-mono" 
@@ -417,10 +504,16 @@ export const InventoryPanel = ({ branchId }: { branchId?: string }) => {
                                         <label className="block text-[10px] font-bold text-slate-500 mb-1 text-right text-rose-500 font-['Cairo']">سعر البيع (لليوزر)</label>
                                         <input 
                                             required
-                                            type="number" 
-                                            step="0.01"
-                                            value={newItem.selling_price} 
-                                            onChange={e => setNewItem({ ...newItem, selling_price: Number(e.target.value) })} 
+                                            type="text"
+                                            inputMode="decimal"
+                                            value={sellPriceStr} 
+                                            onChange={e => {
+                                                const val = e.target.value.replace(/[^0-9.]/g, '');
+                                                const parts = val.split('.');
+                                                const cleanVal = parts[0] + (parts.length > 1 ? '.' + parts.slice(1).join('') : '');
+                                                setSellPriceStr(cleanVal);
+                                                setNewItem({ ...newItem, selling_price: parseFloat(cleanVal) || 0 });
+                                            }} 
                                             className="w-full border-2 border-rose-200 bg-white rounded-xl px-4 py-3 text-center font-black text-rose-700 shadow-sm outline-none focus:border-rose-500 transition-all font-mono" 
                                         />
                                         <div className="absolute -top-2 right-4 bg-rose-500 text-white text-[7px] px-2 py-0.5 rounded-full font-black uppercase tracking-tighter">السعر الظاهر</div>
@@ -452,11 +545,15 @@ export const InventoryPanel = ({ branchId }: { branchId?: string }) => {
                                     <div>
                                         <label className="block text-[9px] font-black text-slate-400 mb-1 text-center font-['Cairo']">عدد الكراتين</label>
                                         <input 
-                                            type="number" 
-                                            min="0" 
-                                            value={newItem.stock / (newItem.pieces_per_unit || 1)} 
+                                            type="text" 
+                                            inputMode="decimal"
+                                            value={cartonQuantityStr} 
                                             onChange={e => {
-                                                const cartons = Number(e.target.value);
+                                                const val = e.target.value.replace(/[^0-9.]/g, '');
+                                                const parts = val.split('.');
+                                                const cleanVal = parts[0] + (parts.length > 1 ? '.' + parts.slice(1).join('') : '');
+                                                setCartonQuantityStr(cleanVal);
+                                                const cartons = parseFloat(cleanVal) || 0;
                                                 setNewItem({ ...newItem, stock: cartons * (newItem.pieces_per_unit || 1) });
                                             }} 
                                             className="w-full border-b-2 border-slate-200 bg-transparent px-1 py-2 text-center text-xs font-black outline-none focus:border-indigo-500 transition-all font-mono" 
@@ -468,6 +565,20 @@ export const InventoryPanel = ({ branchId }: { branchId?: string }) => {
                                     </div>
                                 </div>
                             </div>
+
+                             <div>
+                                <label className="block text-[10px] font-black text-slate-400 mb-2">رابط صورة المنتج (اختياري)</label>
+                                <div className="relative">
+                                    <ImageIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" size={16} />
+                                    <input 
+                                        type="text" 
+                                        placeholder="https://example.com/photo.png" 
+                                        value={newItem.image_url || ''} 
+                                        onChange={e => setNewItem({ ...newItem, image_url: e.target.value })} 
+                                        className="w-full border-2 border-slate-100 rounded-xl pl-10 pr-4 py-2 text-xs font-mono" 
+                                    />
+                                </div>
+                             </div>
 
                             <div className="bg-emerald-600 text-white rounded-[2rem] p-5 shadow-xl shadow-emerald-500/20 relative overflow-hidden group">
                                 <div className="absolute right-0 top-0 w-32 h-32 bg-white/10 rounded-full -translate-y-16 translate-x-16 blur-2xl transition-transform group-hover:scale-150 duration-700"></div>
@@ -546,9 +657,30 @@ export const InventoryPanel = ({ branchId }: { branchId?: string }) => {
 
                         <form onSubmit={handleUpdateItem} className="space-y-4">
                             <div className="space-y-4">
-                                <div>
-                                    <label className="block text-sm font-bold text-slate-600 mb-2 px-1">اسم الصنف المعروض</label>
-                                    <input required type="text" value={editingItem.name} onChange={e => setEditingItem({ ...editingItem, name: e.target.value })} className="w-full border-2 border-slate-100 rounded-xl px-4 py-3 text-slate-800 font-bold focus:border-indigo-500 outline-none transition-all" />
+                                <div className="flex gap-4">
+                                    <div className="flex-1">
+                                        <label className="block text-sm font-bold text-slate-600 mb-2 px-1">اسم الصنف المعروض</label>
+                                        <input required type="text" value={editingItem.name} onChange={e => setEditingItem({ ...editingItem, name: e.target.value })} className="w-full border-2 border-slate-100 rounded-xl px-4 py-3 text-slate-800 font-bold focus:border-indigo-500 outline-none transition-all" />
+                                    </div>
+                                    <div className="w-20 h-20 bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl flex items-center justify-center overflow-hidden relative group cursor-pointer shrink-0">
+                                        <input 
+                                            type="file" 
+                                            accept="image/*" 
+                                            className="absolute inset-0 opacity-0 cursor-pointer z-20" 
+                                            onChange={(e) => handleImageUpload(e, true)}
+                                        />
+                                        {editingItem.image_url ? (
+                                            <img src={editingItem.image_url} className="w-full h-full object-cover" />
+                                        ) : (
+                                            <div className="text-center">
+                                                {loading ? <RefreshCcw size={16} className="text-indigo-400 mx-auto animate-spin" /> : <ImageIcon size={16} className="text-slate-300 mx-auto" />}
+                                                <p className="text-[8px] text-slate-400 mt-1 font-black">لا توجد صورة</p>
+                                            </div>
+                                        )}
+                                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity z-10">
+                                            <Edit size={14} className="text-white" />
+                                        </div>
+                                    </div>
                                 </div>
                                 <div className="grid grid-cols-2 gap-4">
                                     <div>
@@ -579,11 +711,15 @@ export const InventoryPanel = ({ branchId }: { branchId?: string }) => {
                                         <label className="block text-[10px] font-bold text-indigo-500 mb-1 text-right">سعر الكرتونة (شامل التكلفة)</label>
                                         <input 
                                             required
-                                            type="number" 
-                                            min="0" 
-                                            value={(editingItem.price * (editingItem.pieces_per_unit || 1)).toFixed(2)} 
+                                            type="text"
+                                            inputMode="decimal"
+                                            value={boxCostStr} 
                                             onChange={e => {
-                                                const boxCost = Number(e.target.value);
+                                                const val = e.target.value.replace(/[^0-9.]/g, '');
+                                                const parts = val.split('.');
+                                                const cleanVal = parts[0] + (parts.length > 1 ? '.' + parts.slice(1).join('') : '');
+                                                setBoxCostStr(cleanVal);
+                                                const boxCost = parseFloat(cleanVal) || 0;
                                                 setEditingItem({ ...editingItem, price: boxCost / (editingItem.pieces_per_unit || 1) });
                                             }} 
                                             className="w-full border-2 border-indigo-200 bg-white rounded-xl px-4 py-3 text-center font-black text-indigo-700 shadow-sm outline-none focus:border-indigo-500 transition-all font-mono" 
@@ -594,10 +730,16 @@ export const InventoryPanel = ({ branchId }: { branchId?: string }) => {
                                         <label className="block text-[10px] font-bold text-rose-500 mb-1 text-right">سعر البيع (لليوزر)</label>
                                         <input 
                                             required
-                                            type="number" 
-                                            step="0.01" 
-                                            value={editingItem.selling_price} 
-                                            onChange={e => setEditingItem({ ...editingItem, selling_price: Number(e.target.value) })} 
+                                            type="text"
+                                            inputMode="decimal"
+                                            value={sellPriceStr} 
+                                            onChange={e => {
+                                                const val = e.target.value.replace(/[^0-9.]/g, '');
+                                                const parts = val.split('.');
+                                                const cleanVal = parts[0] + (parts.length > 1 ? '.' + parts.slice(1).join('') : '');
+                                                setSellPriceStr(cleanVal);
+                                                setEditingItem({ ...editingItem, selling_price: parseFloat(cleanVal) || 0 });
+                                            }} 
                                             className="w-full border-2 border-rose-200 bg-white rounded-xl px-4 py-3 text-center font-black text-rose-700 shadow-sm outline-none focus:border-rose-500 transition-all font-mono" 
                                         />
                                         <div className="absolute -top-2 right-4 bg-rose-500 text-white text-[7px] px-2 py-0.5 rounded-full font-black uppercase">الظاهر للمستخدم</div>
@@ -608,6 +750,16 @@ export const InventoryPanel = ({ branchId }: { branchId?: string }) => {
                                             {(editingItem.price || 0).toFixed(2)}
                                         </div>
                                     </div>
+                                 <div>
+                                    <label className="block text-[10px] font-bold text-slate-400 mb-1 px-1">رابط الصورة</label>
+                                    <input 
+                                        type="text" 
+                                        value={editingItem.image_url || ''} 
+                                        onChange={e => setEditingItem({ ...editingItem, image_url: e.target.value })} 
+                                        placeholder="https://..." 
+                                        className="w-full border-2 border-slate-100 rounded-xl px-3 py-2 text-[10px] font-mono outline-none focus:border-indigo-500 transition-all bg-white" 
+                                    />
+                                 </div>
                                 </div>
 
                                 <div className="grid grid-cols-3 gap-3">
@@ -627,13 +779,17 @@ export const InventoryPanel = ({ branchId }: { branchId?: string }) => {
                                         />
                                     </div>
                                     <div>
-                                        <label className="block text-[9px] font-black text-slate-500 mb-1 text-center">الكمية (كرتونة)</label>
+                                        <label className="block text-[9px] font-black text-slate-500 mb-1 text-center font-['Cairo']">الكمية (كرتونة)</label>
                                         <input 
-                                            type="number" 
-                                            min="0" 
-                                            value={editingItem.stock / (editingItem.pieces_per_unit || 1)} 
+                                            type="text" 
+                                            inputMode="decimal"
+                                            value={editCartonQuantityStr} 
                                             onChange={e => {
-                                                const cartons = Number(e.target.value);
+                                                const val = e.target.value.replace(/[^0-9.]/g, '');
+                                                const parts = val.split('.');
+                                                const cleanVal = parts[0] + (parts.length > 1 ? '.' + parts.slice(1).join('') : '');
+                                                setEditCartonQuantityStr(cleanVal);
+                                                const cartons = parseFloat(cleanVal) || 0;
                                                 setEditingItem({ ...editingItem, stock: cartons * (editingItem.pieces_per_unit || 1) });
                                             }} 
                                             className="w-full border-b-2 border-slate-200 bg-transparent px-1 py-1 text-center text-xs font-black outline-none focus:border-indigo-500 transition-all font-mono" 
@@ -702,8 +858,12 @@ export const InventoryPanel = ({ branchId }: { branchId?: string }) => {
                                 <tr key={item.id} className="hover:bg-slate-50 transition-all group animate-in slide-in-from-right duration-300" style={{ animationDelay: `${idx * 50}ms` }}>
                                 <td className="px-8 py-6">
                                     <div className="flex items-center gap-4">
-                                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${item.category === 'مطبخ وبوفيه' ? 'bg-amber-50 text-amber-600' : 'bg-blue-50 text-blue-600'}`}>
-                                            {item.category === 'مطبخ وبوفيه' ? <Coffee size={18} /> : <Printer size={18} />}
+                                        <div className={`w-10 h-10 rounded-xl overflow-hidden flex items-center justify-center ${item.category === 'مطبخ وبوفيه' ? 'bg-amber-50 text-amber-600' : 'bg-blue-50 text-blue-600'}`}>
+                                            {item.image_url && item.image_url.trim() !== '' ? (
+                                                <img src={item.image_url} className="w-full h-full object-cover" alt="" />
+                                            ) : (
+                                                item.category === 'مطبخ وبوفيه' ? <Coffee size={18} /> : <Printer size={18} />
+                                            )}
                                         </div>
                                         <div>
                                             <p className="text-slate-800 font-bold">{item.name}</p>
