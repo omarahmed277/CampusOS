@@ -708,7 +708,7 @@ export const WorkspaceLogin = () => {
                     : 'bg-gradient-to-l from-rose-500 to-rose-600 hover:to-rose-500 border-rose-500 text-white shadow-[0_0_20px_rgba(244,63,94,0.3)]'
                 }`}
               >
-                {loading ? 'جاري المعالجة...' : session.status === 'checkout_requested' ? 'تم طلب إنهاء الجلسة' : 'إنهاء الجلسة والحساب'}
+                {loading ? 'جاري المعالجة..' : session.status === 'checkout_requested' ? 'تم طلب إنهاء الجلسة' : 'إنهاء الجلسة والحساب'}
                 {!loading && session.status !== 'checkout_requested' && <LogOut size={22} />}
               </button>
             </div>
