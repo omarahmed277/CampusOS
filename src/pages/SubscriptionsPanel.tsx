@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Edit3, Trash2, X, CheckCircle2, Clock, CalendarDays, Search, User, Phone, Tag, Receipt, AlertCircle, Loader2, Sparkles, ChevronLeft, Save, RefreshCw } from 'lucide-react';
+import { Plus, Edit3, Trash2, X, CheckCircle2, Clock, CalendarDays, Search, User, Phone, Tag, Receipt, AlertCircle, Loader2, Sparkles, ChevronLeft, Save, RefreshCw, CreditCard, History } from 'lucide-react';
+
 import { supabase } from '../lib/supabase';
 import { Subscription } from '../types';
 
@@ -21,7 +22,9 @@ export const SubscriptionsPanel = ({ branchId }: { branchId?: string }) => {
     hours: 40,
     basePrice: 320,
     discount: 0,
+    amountPaid: 320,
     startDate: new Date().toISOString().split('T')[0],
+
   });
 
   const [editData, setEditData] = useState({
@@ -30,8 +33,11 @@ export const SubscriptionsPanel = ({ branchId }: { branchId?: string }) => {
     usedHrs: 0,
     usedMins: 0,
     endDate: '',
-    status: 'Active' as any
+    status: 'Active' as any,
+    price: 0,
+    paid: 0
   });
+
 
   const searchTimeout = useRef<NodeJS.Timeout | null>(null);
 
@@ -119,14 +125,17 @@ export const SubscriptionsPanel = ({ branchId }: { branchId?: string }) => {
       ...prev,
       hours: pkg.hours,
       basePrice: pkg.price,
-      discount: 0
+      discount: 0,
+      amountPaid: pkg.price // Default to full price
     }));
+
   };
 
   const handleHoursChange = (val: number) => {
     const preset = PACKAGES.find(p => p.hours === val);
     const suggestedPrice = preset ? preset.price : val * 8;
-    setFormData(prev => ({ ...prev, hours: val, basePrice: suggestedPrice }));
+    setFormData(prev => ({ ...prev, hours: val, basePrice: suggestedPrice, amountPaid: suggestedPrice }));
+
   };
 
   const finalPrice = Math.max(0, formData.basePrice - formData.discount);
@@ -141,8 +150,9 @@ export const SubscriptionsPanel = ({ branchId }: { branchId?: string }) => {
         customer_id: selectedCustomer.id,
         type: `${formData.hours} Hours Package`,
         price: finalPrice,
-        paid: finalPrice,
-        remaining: 0,
+        paid: parseFloat(formData.amountPaid.toString()) || 0,
+        remaining: Math.max(0, finalPrice - (parseFloat(formData.amountPaid.toString()) || 0)),
+
         start_date: formData.startDate,
         end_date: new Date(new Date(formData.startDate).setMonth(new Date(formData.startDate).getMonth() + 1)).toISOString().split('T')[0],
         total_hours: formData.hours,
@@ -177,8 +187,12 @@ export const SubscriptionsPanel = ({ branchId }: { branchId?: string }) => {
           total_hours: editData.totalHours,
           used_hours: parseFloat((Number(editData.usedHrs) + (Number(editData.usedMins) / 60)).toFixed(2)),
           end_date: editData.endDate,
-          status: editData.status
+          status: editData.status,
+          price: editData.price,
+          paid: editData.paid,
+          remaining: Math.max(0, editData.price - editData.paid)
         })
+
         .eq('id', editingSubscription.id);
 
       if (error) throw error;
@@ -206,13 +220,17 @@ export const SubscriptionsPanel = ({ branchId }: { branchId?: string }) => {
       usedHrs: hrs,
       usedMins: mins,
       endDate: sub.endDate,
-      status: sub.status as any
+      status: sub.status as any,
+      price: sub.price,
+      paid: sub.paid
     });
+
     setIsEditModalOpen(true);
   };
 
   const resetForm = () => {
-    setFormData({ hours: 40, basePrice: 320, discount: 0, startDate: new Date().toISOString().split('T')[0] });
+    setFormData({ hours: 40, basePrice: 320, discount: 0, amountPaid: 320, startDate: new Date().toISOString().split('T')[0] });
+
     setSelectedCustomer(null);
     setSearchQuery('');
     setSearchResults([]);
@@ -326,7 +344,14 @@ export const SubscriptionsPanel = ({ branchId }: { branchId?: string }) => {
                              <User size={20} />
                           </div>
                           <div className="text-right">
-                             <p className="text-slate-800 font-black text-base leading-tight group-hover:text-indigo-600 transition-colors">{sub.name}</p>
+                             <div className="flex flex-row-reverse items-center gap-2">
+                               <p className="text-slate-800 font-black text-base leading-tight group-hover:text-indigo-600 transition-colors">{sub.name}</p>
+                               {sub.remaining > 0 && (
+                                 <span className="flex items-center gap-1 bg-rose-50 text-rose-600 px-2 py-0.5 rounded-lg text-[8px] font-black animate-pulse border border-rose-100 shadow-sm shadow-rose-100/50" title={`عليه مديونية: ${sub.remaining} EGP`}>
+                                   <AlertCircle size={10} /> غير مكتمل الدفع
+                                 </span>
+                               )}
+                             </div>
                              <p className="text-[10px] text-indigo-500 font-mono tracking-widest bg-indigo-50/50 inline-block px-2 py-0.5 rounded-lg mt-2 font-black">{sub.code}</p>
                           </div>
                        </div>
@@ -497,7 +522,7 @@ export const SubscriptionsPanel = ({ branchId }: { branchId?: string }) => {
                 </div>
               </div>
 
-              {/* Package Selector */}
+               {/* Package Selector */}
               <div className="space-y-4">
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">اختر الباقة المناسبة</label>
                 <div className="grid grid-cols-3 gap-4">
@@ -524,6 +549,79 @@ export const SubscriptionsPanel = ({ branchId }: { branchId?: string }) => {
                   ))}
                 </div>
               </div>
+
+              {/* Financial Breakdown Section */}
+
+              <div className="grid grid-cols-2 gap-6 bg-slate-50 p-8 rounded-[2.5rem] border border-slate-100">
+                <div className="space-y-4">
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">سعر الباقة</label>
+                  <div className="relative group">
+                    <History className="absolute right-6 top-1/2 -translate-y-1/2 text-slate-300" size={20} />
+                    <input
+                      type="number"
+                      value={formData.basePrice}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        setFormData({...formData, basePrice: val, amountPaid: val - formData.discount});
+                      }}
+                      className="w-full bg-white border-2 border-slate-100 rounded-3xl px-14 py-5 text-lg font-black text-slate-800 outline-none focus:border-indigo-400 transition-all text-center h-16"
+                    />
+                  </div>
+                </div>
+                
+                <div className="space-y-4">
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">خصم العميل</label>
+                  <div className="relative group">
+                    <Tag className="absolute right-6 top-1/2 -translate-y-1/2 text-slate-300" size={20} />
+                    <input
+                      type="number"
+                      value={formData.discount}
+                      onChange={(e) => {
+                         const val = Number(e.target.value);
+                         setFormData({...formData, discount: val, amountPaid: formData.basePrice - val});
+                      }}
+                      className="w-full bg-white border-2 border-slate-100 rounded-3xl px-14 py-5 text-lg font-black text-rose-500 outline-none focus:border-rose-300 transition-all text-center h-16"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-4 col-span-2 pt-2 border-t border-slate-200">
+                  <div className="flex justify-between items-center px-2 mb-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">المبلغ الذي تم دفعه الآن</label>
+                    {finalPrice - Number(formData.amountPaid) > 0 && (
+                      <span className="text-[9px] font-black text-rose-500 bg-rose-50 px-2 py-1 rounded-lg animate-pulse">
+                        متبقي عليه: {(finalPrice - Number(formData.amountPaid)).toLocaleString()} EGP
+                      </span>
+                    )}
+                  </div>
+                  <div className="relative group">
+                     <CreditCard className="absolute right-8 top-1/2 -translate-y-1/2 text-indigo-400" size={28} />
+                     <input
+                        type="number"
+                        value={formData.amountPaid}
+                        onChange={(e) => setFormData({...formData, amountPaid: Number(e.target.value)})}
+                        max={finalPrice}
+                        className="w-full bg-indigo-900 border-4 border-indigo-100/20 rounded-[2rem] px-20 py-8 text-3xl font-black text-white outline-none focus:scale-[1.02] transition-all text-center shadow-2xl"
+                     />
+                     <div className="absolute left-8 top-1/2 -translate-y-1/2 text-indigo-300 font-bold">EGP</div>
+                  </div>
+                  <div className="flex gap-2 justify-center mt-3">
+                    <button 
+                      onClick={() => setFormData({...formData, amountPaid: finalPrice})}
+                      className="text-[9px] font-black bg-white border border-slate-200 px-3 py-1.5 rounded-lg text-slate-500 hover:bg-emerald-50 hover:text-emerald-600 hover:border-emerald-200 transition-all"
+                    >
+                      دفع الكل
+                    </button>
+                    <button 
+                      onClick={() => setFormData({...formData, amountPaid: 0})}
+                      className="text-[9px] font-black bg-white border border-slate-200 px-3 py-1.5 rounded-lg text-slate-500 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 transition-all"
+                    >
+                      دفع 0 (آجل)
+                    </button>
+                  </div>
+                </div>
+              </div>
+
 
               {/* Summary Card */}
               <div className="bg-slate-900 rounded-[3rem] p-12 text-white relative overflow-hidden group shadow-2xl">
@@ -619,6 +717,38 @@ export const SubscriptionsPanel = ({ branchId }: { branchId?: string }) => {
                      </div>
                   </div>
                </div>
+                <div className="grid grid-cols-2 gap-6 pt-4 border-t border-slate-100">
+                   <div className="space-y-3">
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest text-right mr-2">سعر الباقة</label>
+                      <div className="relative">
+                        <History size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-300" />
+                        <input
+                          type="number"
+                          className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl pl-6 pr-12 py-4 text-sm font-black text-slate-800 outline-none focus:border-indigo-400 transition-all text-center h-14"
+                          value={editData.price}
+                          onChange={(e) => setEditData({ ...editData, price: Number(e.target.value) })}
+                        />
+                      </div>
+                   </div>
+                   <div className="space-y-3">
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest text-right mr-2">المبلغ المدفوع</label>
+                      <div className="relative">
+                        <CreditCard size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-indigo-400" />
+                        <input
+                          type="number"
+                          className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl pl-6 pr-12 py-4 text-sm font-black text-emerald-600 outline-none focus:border-indigo-400 transition-all text-center h-14"
+                          value={editData.paid}
+                          onChange={(e) => setEditData({ ...editData, paid: Number(e.target.value) })}
+                        />
+                      </div>
+                   </div>
+                   {editData.price - editData.paid > 0 && (
+                     <div className="col-span-2 p-4 bg-rose-50 rounded-2xl flex items-center justify-between border border-rose-100">
+                       <span className="text-[10px] font-black text-rose-400 uppercase tracking-widest">المبلغ المتبقي للتحصيل</span>
+                       <span className="text-xl font-black text-rose-600">{(editData.price - editData.paid).toLocaleString()} EGP</span>
+                     </div>
+                   )}
+                </div>
 
                <div className="grid grid-cols-2 gap-6">
                   <div className="space-y-3">

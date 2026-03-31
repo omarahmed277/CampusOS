@@ -14,6 +14,41 @@ export type Database = {
   }
   public: {
     Tables: {
+      bills: {
+        Row: {
+          amount: number
+          created_at: string
+          id: string
+          rate_per_hour: number
+          session_id: string
+          user_id: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          id?: string
+          rate_per_hour: number
+          session_id: string
+          user_id: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          id?: string
+          rate_per_hour?: number
+          session_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bills_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       bookings: {
         Row: {
           attendees: number | null
@@ -140,6 +175,85 @@ export type Database = {
           },
         ]
       }
+      branch_alerts: {
+        Row: {
+          branch_id: string | null
+          created_at: string | null
+          id: string
+          is_active: boolean | null
+          message: string
+          type: string | null
+        }
+        Insert: {
+          branch_id?: string | null
+          created_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          message: string
+          type?: string | null
+        }
+        Update: {
+          branch_id?: string | null
+          created_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          message?: string
+          type?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "branch_alerts_branch_id_fkey"
+            columns: ["branch_id"]
+            isOneToOne: false
+            referencedRelation: "branches"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      branch_tasks: {
+        Row: {
+          branch_id: string | null
+          created_at: string | null
+          id: string
+          recurrence: string | null
+          shift: string | null
+          status: string | null
+          task_name: string
+          time: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          branch_id?: string | null
+          created_at?: string | null
+          id?: string
+          recurrence?: string | null
+          shift?: string | null
+          status?: string | null
+          task_name: string
+          time?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          branch_id?: string | null
+          created_at?: string | null
+          id?: string
+          recurrence?: string | null
+          shift?: string | null
+          status?: string | null
+          task_name?: string
+          time?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "branch_tasks_branch_id_fkey"
+            columns: ["branch_id"]
+            isOneToOne: false
+            referencedRelation: "branches"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       branches: {
         Row: {
           address: string | null
@@ -224,7 +338,7 @@ export type Database = {
           {
             foreignKeyName: "catering_items_inventory_id_fkey"
             columns: ["inventory_id"]
-            isOneToOne: false
+            isOneToOne: true
             referencedRelation: "inventory"
             referencedColumns: ["id"]
           },
@@ -293,6 +407,7 @@ export type Database = {
         Row: {
           birth_date: string | null
           code: string
+          college: string | null
           created_at: string | null
           email: string | null
           email_error: string | null
@@ -310,6 +425,7 @@ export type Database = {
         Insert: {
           birth_date?: string | null
           code: string
+          college?: string | null
           created_at?: string | null
           email?: string | null
           email_error?: string | null
@@ -327,6 +443,7 @@ export type Database = {
         Update: {
           birth_date?: string | null
           code?: string
+          college?: string | null
           created_at?: string | null
           email?: string | null
           email_error?: string | null
@@ -345,6 +462,59 @@ export type Database = {
           {
             foreignKeyName: "customers_home_branch_id_fkey"
             columns: ["home_branch_id"]
+            isOneToOne: false
+            referencedRelation: "branches"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      daily_closings: {
+        Row: {
+          actual_cash: number
+          branch_id: string | null
+          closed_at: string | null
+          closed_by: string | null
+          date: string | null
+          denominations: Json | null
+          difference: number
+          expected_cash: number
+          id: string
+          is_finalized: boolean | null
+          total_expense: number | null
+          total_income: number | null
+        }
+        Insert: {
+          actual_cash: number
+          branch_id?: string | null
+          closed_at?: string | null
+          closed_by?: string | null
+          date?: string | null
+          denominations?: Json | null
+          difference: number
+          expected_cash: number
+          id?: string
+          is_finalized?: boolean | null
+          total_expense?: number | null
+          total_income?: number | null
+        }
+        Update: {
+          actual_cash?: number
+          branch_id?: string | null
+          closed_at?: string | null
+          closed_by?: string | null
+          date?: string | null
+          denominations?: Json | null
+          difference?: number
+          expected_cash?: number
+          id?: string
+          is_finalized?: boolean | null
+          total_expense?: number | null
+          total_income?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "daily_closings_branch_id_fkey"
+            columns: ["branch_id"]
             isOneToOne: false
             referencedRelation: "branches"
             referencedColumns: ["id"]
@@ -397,37 +567,43 @@ export type Database = {
       }
       expenses: {
         Row: {
-          id: string
+          amount: number
           branch_id: string | null
           category: string
-          amount: number
-          date: string
-          note: string | null
-          type: string | null
-          items: Json | null
           created_at: string | null
+          date: string
+          id: string
+          items: Json | null
+          note: string | null
+          payment_method: string | null
+          supplier: string | null
+          type: string | null
         }
         Insert: {
-          id?: string
+          amount: number
           branch_id?: string | null
           category: string
-          amount: number
-          date: string
-          note?: string | null
-          type?: string | null
-          items?: Json | null
           created_at?: string | null
+          date: string
+          id?: string
+          items?: Json | null
+          note?: string | null
+          payment_method?: string | null
+          supplier?: string | null
+          type?: string | null
         }
         Update: {
-          id?: string
+          amount?: number
           branch_id?: string | null
           category?: string
-          amount?: number
-          date?: string
-          note?: string | null
-          type?: string | null
-          items?: Json | null
           created_at?: string | null
+          date?: string
+          id?: string
+          items?: Json | null
+          note?: string | null
+          payment_method?: string | null
+          supplier?: string | null
+          type?: string | null
         }
         Relationships: [
           {
@@ -436,36 +612,154 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "branches"
             referencedColumns: ["id"]
-          }
+          },
+        ]
+      }
+      finance_summary: {
+        Row: {
+          branch_id: string | null
+          cash_athar: number | null
+          cash_athar_prev: number | null
+          cash_cloud: number | null
+          cash_cloud_prev: number | null
+          final_balance_prev: number | null
+          id: string
+          total_cash: number | null
+          total_cash_prev: number | null
+          total_in: number | null
+          total_in_prev: number | null
+          total_out: number | null
+          total_out_prev: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          branch_id?: string | null
+          cash_athar?: number | null
+          cash_athar_prev?: number | null
+          cash_cloud?: number | null
+          cash_cloud_prev?: number | null
+          final_balance_prev?: number | null
+          id?: string
+          total_cash?: number | null
+          total_cash_prev?: number | null
+          total_in?: number | null
+          total_in_prev?: number | null
+          total_out?: number | null
+          total_out_prev?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          branch_id?: string | null
+          cash_athar?: number | null
+          cash_athar_prev?: number | null
+          cash_cloud?: number | null
+          cash_cloud_prev?: number | null
+          final_balance_prev?: number | null
+          id?: string
+          total_cash?: number | null
+          total_cash_prev?: number | null
+          total_in?: number | null
+          total_in_prev?: number | null
+          total_out?: number | null
+          total_out_prev?: number | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "finance_summary_branch_id_fkey"
+            columns: ["branch_id"]
+            isOneToOne: true
+            referencedRelation: "branches"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      inventory: {
+        Row: {
+          branch_id: string | null
+          category: string | null
+          created_at: string | null
+          id: string
+          last_restock: string | null
+          min_stock: number | null
+          name: string
+          pieces_per_unit: number | null
+          price: number | null
+          selling_price: number | null
+          stock: number | null
+          unit: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          branch_id?: string | null
+          category?: string | null
+          created_at?: string | null
+          id?: string
+          last_restock?: string | null
+          min_stock?: number | null
+          name: string
+          pieces_per_unit?: number | null
+          price?: number | null
+          selling_price?: number | null
+          stock?: number | null
+          unit?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          branch_id?: string | null
+          category?: string | null
+          created_at?: string | null
+          id?: string
+          last_restock?: string | null
+          min_stock?: number | null
+          name?: string
+          pieces_per_unit?: number | null
+          price?: number | null
+          selling_price?: number | null
+          stock?: number | null
+          unit?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "inventory_branch_id_fkey"
+            columns: ["branch_id"]
+            isOneToOne: false
+            referencedRelation: "branches"
+            referencedColumns: ["id"]
+          },
         ]
       }
       inventory_logs: {
         Row: {
-          id: string
           branch_id: string | null
-          inventory_id: string | null
-          type: string
-          quantity: number
-          notes: string | null
           created_at: string | null
+          id: string
+          inventory_id: string | null
+          notes: string | null
+          performed_by: string | null
+          quantity: number
+          type: string
         }
         Insert: {
-          id?: string
           branch_id?: string | null
-          inventory_id?: string | null
-          type: string
-          quantity: number
-          notes?: string | null
           created_at?: string | null
+          id?: string
+          inventory_id?: string | null
+          notes?: string | null
+          performed_by?: string | null
+          quantity: number
+          type: string
         }
         Update: {
-          id?: string
           branch_id?: string | null
-          inventory_id?: string | null
-          type?: string
-          quantity?: number
-          notes?: string | null
           created_at?: string | null
+          id?: string
+          inventory_id?: string | null
+          notes?: string | null
+          performed_by?: string | null
+          quantity?: number
+          type?: string
         }
         Relationships: [
           {
@@ -481,52 +775,84 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "inventory"
             referencedColumns: ["id"]
-          }
+          },
         ]
       }
-      inventory: {
+      monthly_closings: {
         Row: {
           branch_id: string | null
-          created_at: string | null
+          closed_at: string | null
+          closed_by: string | null
           id: string
-          last_restock: string | null
-          min_stock: number | null
-          name: string
-          stock: number | null
-          unit: string | null
-          updated_at: string | null
-          price: number | null
-          category: string | null
+          month_key: string
+          net_profit: number
+          total_expense: number
+          total_income: number
         }
         Insert: {
           branch_id?: string | null
-          created_at?: string | null
+          closed_at?: string | null
+          closed_by?: string | null
           id?: string
-          last_restock?: string | null
-          min_stock?: number | null
-          name: string
-          stock?: number | null
-          unit?: string | null
-          updated_at?: string | null
-          price?: number | null
-          category?: string | null
+          month_key: string
+          net_profit: number
+          total_expense: number
+          total_income: number
         }
         Update: {
           branch_id?: string | null
-          created_at?: string | null
+          closed_at?: string | null
+          closed_by?: string | null
           id?: string
-          last_restock?: string | null
-          min_stock?: number | null
-          name?: string
-          stock?: number | null
-          unit?: string | null
-          updated_at?: string | null
-          price?: number | null
-          category?: string | null
+          month_key?: string
+          net_profit?: number
+          total_expense?: number
+          total_income?: number
         }
         Relationships: [
           {
-            foreignKeyName: "inventory_branch_id_fkey"
+            foreignKeyName: "monthly_closings_branch_id_fkey"
+            columns: ["branch_id"]
+            isOneToOne: false
+            referencedRelation: "branches"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      petty_cash: {
+        Row: {
+          amount: number
+          branch_id: string | null
+          created_at: string | null
+          created_by: string | null
+          date: string | null
+          id: string
+          note: string | null
+          type: string | null
+        }
+        Insert: {
+          amount: number
+          branch_id?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          date?: string | null
+          id?: string
+          note?: string | null
+          type?: string | null
+        }
+        Update: {
+          amount?: number
+          branch_id?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          date?: string | null
+          id?: string
+          note?: string | null
+          type?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "petty_cash_branch_id_fkey"
             columns: ["branch_id"]
             isOneToOne: false
             referencedRelation: "branches"
@@ -570,9 +896,12 @@ export type Database = {
           branch_id: string | null
           capacity: number | null
           category: string | null
+          code: string | null
+          color: string | null
           created_at: string | null
           currency: string | null
           description: string | null
+          google_calendar_id: string | null
           id: string
           is_active: boolean | null
           name: string
@@ -585,9 +914,12 @@ export type Database = {
           branch_id?: string | null
           capacity?: number | null
           category?: string | null
+          code?: string | null
+          color?: string | null
           created_at?: string | null
           currency?: string | null
           description?: string | null
+          google_calendar_id?: string | null
           id?: string
           is_active?: boolean | null
           name: string
@@ -600,9 +932,12 @@ export type Database = {
           branch_id?: string | null
           capacity?: number | null
           category?: string | null
+          code?: string | null
+          color?: string | null
           created_at?: string | null
           currency?: string | null
           description?: string | null
+          google_calendar_id?: string | null
           id?: string
           is_active?: boolean | null
           name?: string
@@ -619,6 +954,36 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      sessions: {
+        Row: {
+          check_in: string
+          check_out: string | null
+          id: string
+          rate_per_hour: number
+          status: Database["public"]["Enums"]["session_status"]
+          total_minutes: number | null
+          user_id: string
+        }
+        Insert: {
+          check_in?: string
+          check_out?: string | null
+          id?: string
+          rate_per_hour?: number
+          status?: Database["public"]["Enums"]["session_status"]
+          total_minutes?: number | null
+          user_id: string
+        }
+        Update: {
+          check_in?: string
+          check_out?: string | null
+          id?: string
+          rate_per_hour?: number
+          status?: Database["public"]["Enums"]["session_status"]
+          total_minutes?: number | null
+          user_id?: string
+        }
+        Relationships: []
       }
       settings: {
         Row: {
@@ -837,60 +1202,86 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "services"
             referencedColumns: ["id"]
-          }
+          },
         ]
       }
       workspace_sessions: {
         Row: {
-          id: string
-          customer_id: string | null
-          user_code: string
-          phone_number: string
-          start_time: string
-          end_time: string | null
-          status: string
-          total_minutes: number | null
-          total_amount: number | null
-          created_at: string
+          branch_id: string | null
           catering_amount: number | null
+          created_at: string
+          customer_id: string | null
+          end_time: string | null
+          id: string
           orders: Json | null
+          payment_method: string | null
+          phone_number: string
+          service_id: string | null
+          start_time: string
+          status: string
+          total_amount: number | null
+          total_minutes: number | null
+          user_code: string
+          user_name: string | null
         }
         Insert: {
-          id?: string
-          customer_id?: string | null
-          user_code: string
-          phone_number: string
-          start_time?: string
-          end_time?: string | null
-          status?: string
-          total_minutes?: number | null
-          total_amount?: number | null
-          created_at?: string
+          branch_id?: string | null
           catering_amount?: number | null
+          created_at: string
+          customer_id?: string | null
+          end_time?: string | null
+          id?: string
           orders?: Json | null
+          payment_method?: string | null
+          phone_number: string
+          service_id?: string | null
+          start_time?: string
+          status?: string
+          total_amount?: number | null
+          total_minutes?: number | null
+          user_code: string
+          user_name?: string | null
         }
         Update: {
-          id?: string
-          customer_id?: string | null
-          user_code?: string
-          phone_number?: string
-          start_time?: string
-          end_time?: string | null
-          status?: string
-          total_minutes?: number | null
-          total_amount?: number | null
-          created_at?: string
+          branch_id?: string | null
           catering_amount?: number | null
+          created_at?: string
+          customer_id?: string | null
+          end_time?: string | null
+          id?: string
           orders?: Json | null
+          payment_method?: string | null
+          phone_number?: string
+          service_id?: string | null
+          start_time?: string
+          status?: string
+          total_amount?: number | null
+          total_minutes?: number | null
+          user_code?: string
+          user_name?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "workspace_sessions_branch_id_fkey"
+            columns: ["branch_id"]
+            isOneToOne: false
+            referencedRelation: "branches"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "workspace_sessions_customer_id_fkey"
             columns: ["customer_id"]
             isOneToOne: false
             referencedRelation: "customers"
             referencedColumns: ["id"]
-          }
+          },
+          {
+            foreignKeyName: "workspace_sessions_service_id_fkey"
+            columns: ["service_id"]
+            isOneToOne: false
+            referencedRelation: "services"
+            referencedColumns: ["id"]
+          },
         ]
       }
     }
@@ -901,7 +1292,7 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
-      [_ in never]: never
+      session_status: "active" | "pending_checkout" | "completed"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -915,119 +1306,121 @@ type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">]
 
 export type Tables<
   DefaultSchemaTableNameOrOptions extends
-  | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
-  | { schema: keyof DatabaseWithoutInternals },
+    | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
+    | { schema: keyof DatabaseWithoutInternals },
   TableName extends DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
-  ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
-    DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-  : never = never,
+    ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+        DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
+    : never = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
   ? (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
-    DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])[TableName] extends {
+      DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])[TableName] extends {
       Row: infer R
     }
-  ? R
-  : never
+    ? R
+    : never
   : DefaultSchemaTableNameOrOptions extends keyof (DefaultSchema["Tables"] &
-    DefaultSchema["Views"])
-  ? (DefaultSchema["Tables"] &
-    DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
-      Row: infer R
-    }
-  ? R
-  : never
-  : never
+        DefaultSchema["Views"])
+    ? (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
+        Row: infer R
+      }
+      ? R
+      : never
+    : never
 
 export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
-  | keyof DefaultSchema["Tables"]
-  | { schema: keyof DatabaseWithoutInternals },
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof DatabaseWithoutInternals },
   TableName extends DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
-  ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-  : never = never,
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
   ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
-    Insert: infer I
-  }
-  ? I
-  : never
+      Insert: infer I
+    }
+    ? I
+    : never
   : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
-  ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
-    Insert: infer I
-  }
-  ? I
-  : never
-  : never
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Insert: infer I
+      }
+      ? I
+      : never
+    : never
 
 export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
-  | keyof DefaultSchema["Tables"]
-  | { schema: keyof DatabaseWithoutInternals },
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof DatabaseWithoutInternals },
   TableName extends DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
-  ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-  : never = never,
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
   ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
-    Update: infer U
-  }
-  ? U
-  : never
+      Update: infer U
+    }
+    ? U
+    : never
   : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
-  ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
-    Update: infer U
-  }
-  ? U
-  : never
-  : never
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Update: infer U
+      }
+      ? U
+      : never
+    : never
 
 export type Enums<
   DefaultSchemaEnumNameOrOptions extends
-  | keyof DefaultSchema["Enums"]
-  | { schema: keyof DatabaseWithoutInternals },
+    | keyof DefaultSchema["Enums"]
+    | { schema: keyof DatabaseWithoutInternals },
   EnumName extends DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
-  ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-  : never = never,
+    ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
+    : never = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
   ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"][EnumName]
   : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"]
-  ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
-  : never
+    ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
+    : never
 
 export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
-  | keyof DefaultSchema["CompositeTypes"]
-  | { schema: keyof DatabaseWithoutInternals },
+    | keyof DefaultSchema["CompositeTypes"]
+    | { schema: keyof DatabaseWithoutInternals },
   CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
-  ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-  : never = never,
+    ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
+    : never = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
   ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
   : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
-  ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
-  : never
+    ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
+    : never
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      session_status: ["active", "pending_checkout", "completed"],
+    },
   },
 } as const

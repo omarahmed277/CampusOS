@@ -77,24 +77,17 @@ export const WorkspaceLogin = () => {
 
   const fetchStoreItems = async () => {
     try {
-      // Fetch from shop_products which is synced with inventory
-      const { data } = await supabase
-        .from('shop_products' as any)
-        .select(`*, inventory(stock, unit)`)
-        .eq('is_available', true);
+      // Direct fetch from inventory favoring selling_price > 0
+      const { data, error } = await supabase
+        .from('inventory')
+        .select('*')
+        .gt('selling_price', 0)
+        .order('name');
       
-      if (data) {
-        setCateringItems(data);
-      } else {
-        // Fallback to direct inventory if shop_products doesn't exist yet
-        const { data: invData } = await supabase
-            .from('inventory')
-            .select('*')
-            .gt('price', 0);
-        setCateringItems(invData || []);
-      }
+      if (error) throw error;
+      setCateringItems(data || []);
     } catch (err) {
-      console.error(err);
+      console.error('Error fetching store items:', err);
     }
   };
 
@@ -127,7 +120,7 @@ export const WorkspaceLogin = () => {
     setOrderLoading(true);
     try {
       const cartEntries = Object.values(cart) as any[];
-      const subtotal = cartEntries.reduce((sum, entry) => sum + (entry.item.price * entry.quantity), 0);
+      const subtotal = cartEntries.reduce((sum, entry) => sum + ((entry.item.selling_price || entry.item.price) * entry.quantity), 0);
       
       // 1. Attempt to create structured order records (if tables exist)
       try {
@@ -151,7 +144,7 @@ export const WorkspaceLogin = () => {
                         order_id: order.id,
                         product_id: entry.item.id,
                         quantity: entry.quantity,
-                        price_at_purchase: entry.item.price
+                        price_at_purchase: entry.item.selling_price || entry.item.price
                     });
               }
           }
@@ -161,11 +154,11 @@ export const WorkspaceLogin = () => {
 
       // 3. Deduct Inventory (Always works if inventory table exists)
       for (const entry of cartEntries) {
-          const invId = entry.item.inventory_id || entry.item.id;
-          const currentStock = entry.item.inventory?.stock || entry.item.stock || 5;
+          const invId = entry.item.id; // Use item.id directly from inventory fetch
+          const currentStock = Number(entry.item.stock) || 0;
           await (supabase as any)
             .from('inventory')
-            .update({ stock: currentStock - entry.quantity })
+            .update({ stock: Math.max(0, currentStock - entry.quantity) })
             .eq('id', invId);
       }
 
@@ -176,7 +169,7 @@ export const WorkspaceLogin = () => {
       const newOrders = [...currentOrders, ...cartEntries.map(e => ({
         id: e.item.id,
         name: e.item.name,
-        price: e.item.price,
+        price: e.item.selling_price || e.item.price,
         quantity: e.quantity,
         time: new Date().toISOString()
       }))];
@@ -700,7 +693,7 @@ export const WorkspaceLogin = () => {
                   </div>
                   {session.status === 'checkout_requested' && (
                     <div className="mt-8 text-white font-bold bg-[#f78c2a] px-6 py-3 rounded-xl shadow-[0_0_20px_rgba(247,140,42,0.4)] animate-pulse w-full text-center">
-                      جاري مراجعة طلبك وإصدار الفاتورة...
+                      بإنتظار موافقة ال Admin علي هذا الطلب يرجي التوجه لدفع الحساب
                     </div>
                   )}
                 </div>
@@ -751,8 +744,8 @@ export const WorkspaceLogin = () => {
                           <div className="text-right flex-1">
                               <p className="font-black text-white text-lg group-hover:text-indigo-400 transition-colors line-clamp-1 truncate ml-2" title={item.name}>{item.name}</p>
                               <div className="flex items-center gap-2 mt-0.5">
-                                <p className="text-[#1ed788] font-black">{item.price} EGP</p>
-                                <span className="text-[10px] text-slate-500 font-bold">| متوفر: {item.inventory?.stock || item.stock || 0}</span>
+                                <p className="text-[#1ed788] font-black">{item.selling_price} EGP</p>
+                                <span className="text-[10px] text-slate-500 font-bold">| متوفر: {item.stock || 0}</span>
                               </div>
                           </div>
                           
