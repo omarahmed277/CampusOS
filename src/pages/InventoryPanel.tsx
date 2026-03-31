@@ -45,21 +45,35 @@ export const InventoryPanel = ({ branchId }: { branchId?: string }) => {
             let query = supabase.from('inventory').select('*');
             if (branchId) query = query.eq('branch_id', branchId);
             
-            const { data, error } = await query;
-            if (error) throw error;
+            const { data: invData, error: invError } = await query;
+            if (invError) throw invError;
             
-            console.log("--- [FETCH TRACE] ---");
-            console.log("Raw items from DB (count):", data?.length);
+            // Fetch total sold units from workspace_sessions orders JSONB
+            const { data: sessionData, error: sessionError } = await supabase
+                .from('workspace_sessions')
+                .select('orders');
             
-            // Map the data - now using unified selling_price from inventory table
-            const mappedData = (data || []).map(item => ({
+            const soldCounts: Record<string, number> = {};
+            if (!sessionError && sessionData) {
+                sessionData.forEach(session => {
+                    const orders = session.orders;
+                    if (Array.isArray(orders)) {
+                        orders.forEach((order: any) => {
+                            // In JSONB, IDs might be stored under 'id' or 'product_id'
+                            const pid = order.id || order.product_id;
+                            if (pid) {
+                                soldCounts[pid] = (soldCounts[pid] || 0) + (Number(order.quantity) || 0);
+                            }
+                        });
+                    }
+                });
+            }
+            
+            const mappedData = (invData || []).map(item => ({
                 ...item,
-                id: item.id, // primary and consistent ID
-                selling_price: item.selling_price // unified from inventory table
+                total_sold: soldCounts[item.id] || 0,
+                selling_price: item.selling_price
             }));
-
-            console.log("Fetched items:", mappedData);
-            console.log("Active Price Items:", mappedData.filter(i => i.selling_price !== null && i.selling_price !== 0).length);
 
             setStockItems(mappedData);
         } catch (error) {
@@ -358,22 +372,27 @@ export const InventoryPanel = ({ branchId }: { branchId?: string }) => {
                     </div>
                 </Card>
 
-                <Card className="border-none shadow-sm rounded-[2.5rem] bg-white p-6 flex flex-col gap-3">
-                    <div className="flex justify-between items-start">
-                        <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center">
-                            <AlertTriangle size={24} />
+                <Card className="border-none shadow-sm rounded-[2.5rem] bg-white p-6 relative overflow-hidden group">
+                    <div className="absolute right-0 top-0 w-24 h-24 bg-indigo-50 rounded-full -translate-y-12 translate-x-12 blur-2xl group-hover:bg-indigo-100 transition-colors"></div>
+                    <div className="relative z-10 flex flex-col gap-3 text-right">
+                        <div className="w-12 h-12 bg-indigo-600 text-white rounded-2xl flex items-center justify-center shadow-lg shadow-indigo-600/20">
+                            <Package size={24} />
                         </div>
-                        <div className="text-right">
-                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">أصناف تحتاج كاش</p>
-                            <p className="text-2xl font-black text-slate-900 font-mono">{lowStockCount}</p>
-                        </div>
-                    </div>
-                    <div className="mt-auto">
-                        <div className="w-full h-1.5 bg-slate-50 rounded-full overflow-hidden">
-                            <div 
-                                className="h-full bg-amber-400 rounded-full transition-all duration-1000" 
-                                style={{ width: `${(lowStockCount / stockItems.length) * 100}%` }}
-                            ></div>
+                        <div>
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">الأكثر مبيعاً</p>
+                            {stockItems.length > 0 ? (
+                                (() => {
+                                    const bestSeller = [...stockItems].sort((a, b) => (b.total_sold || 0) - (a.total_sold || 0))[0];
+                                    return (
+                                        <>
+                                            <p className="text-sm font-black text-slate-900 truncate">{bestSeller.name}</p>
+                                            <p className="text-[14px] font-bold text-indigo-500">{bestSeller.total_sold || 0} قطعة مباعة</p>
+                                        </>
+                                    );
+                                })()
+                            ) : (
+                                <p className="text-sm font-black text-slate-300">لا توجد مبيعات</p>
+                            )}
                         </div>
                     </div>
                 </Card>
@@ -835,21 +854,18 @@ export const InventoryPanel = ({ branchId }: { branchId?: string }) => {
                     <thead>
                         <tr className="bg-slate-50 border-b border-slate-100 text-slate-400 text-[10px] font-black uppercase tracking-widest text-center">
                             <th className="px-8 py-6 text-right">إسم الصنف</th>
-                            <th className="px-6 py-6">التصنيف</th>
-                            <th className="px-6 py-6 text-center">الكراتين المتاحة</th>
-                            <th className="px-6 py-6 text-center">القطع / كرتونة</th>
-                            <th className="px-6 py-6 text-center">إجمالي القطع</th>
+                            <th className="px-6 py-6 text-center">إجمالي المبيعات</th>
+                            <th className="px-6 py-6 text-center">الرصيد المتاح</th>
                             <th className="px-6 py-6 text-center text-rose-600 font-black">سعر البيع</th>
                             <th className="px-6 py-6 text-center">تحليل الربح</th>
-                            <th className="px-6 py-6">الحالة</th>
-                            <th className="px-6 py-6 text-center">آخر توريد</th>
+                            <th className="px-6 py-6">حالة المخزون</th>
                             <th className="px-8 py-6 text-left">إجراء</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-50">
                         {loading ? (
                             <tr>
-                                <td colSpan={10} className="py-20 text-center">
+                                <td colSpan={7} className="py-20 text-center">
                                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mx-auto"></div>
                                 </td>
                             </tr>
@@ -858,118 +874,77 @@ export const InventoryPanel = ({ branchId }: { branchId?: string }) => {
                                 <tr key={item.id} className="hover:bg-slate-50 transition-all group animate-in slide-in-from-right duration-300" style={{ animationDelay: `${idx * 50}ms` }}>
                                 <td className="px-8 py-6">
                                     <div className="flex items-center gap-4">
-                                        <div className={`w-10 h-10 rounded-xl overflow-hidden flex items-center justify-center ${item.category === 'مطبخ وبوفيه' ? 'bg-amber-50 text-amber-600' : 'bg-blue-50 text-blue-600'}`}>
+                                        <div className={`w-12 h-12 rounded-2xl overflow-hidden flex items-center justify-center shadow-sm ${item.category === 'مطبخ وبوفيه' ? 'bg-amber-50 text-amber-600' : 'bg-blue-50 text-blue-600'}`}>
                                             {item.image_url && item.image_url.trim() !== '' ? (
                                                 <img src={item.image_url} className="w-full h-full object-cover" alt="" />
                                             ) : (
-                                                item.category === 'مطبخ وبوفيه' ? <Coffee size={18} /> : <Printer size={18} />
+                                                item.category === 'مطبخ وبوفيه' ? <Coffee size={20} /> : <Printer size={20} />
                                             )}
                                         </div>
                                         <div>
-                                            <p className="text-slate-800 font-bold">{item.name}</p>
-                                            <p className="text-[10px] text-slate-400 font-black">وحدة القياس: {item.unit}</p>
+                                            <p className="text-slate-800 font-black text-sm">{item.name}</p>
+                                            <Badge className="bg-slate-100 text-slate-500 border-none text-[8px] font-black mt-1">
+                                                {item.category || 'عام'}
+                                            </Badge>
                                         </div>
                                     </div>
-                                </td>
-                                <td className="px-6 py-6">
-                                    <Badge className={`${item.category === 'مطبخ وبوفيه' ? 'bg-amber-50 text-amber-600 border-amber-100' : 'bg-blue-50 text-blue-600 border-blue-100'} rounded-lg px-3 py-1 font-black text-[10px]`}>
-                                        {item.category || 'غير مصنف'}
-                                    </Badge>
                                 </td>
                                 <td className="px-6 py-6 text-center">
-                                    <div className="flex flex-col items-center bg-indigo-50/30 rounded-2xl p-2 border border-indigo-100/50">
-                                        <div className="flex items-center gap-2">
-                                            <span className="text-2xl font-black text-indigo-700">
-                                                {Math.floor(item.stock / (item.pieces_per_unit || 1))}
-                                            </span>
-                                            <span className="text-[10px] text-indigo-400 font-black">{item.unit || 'كرتونة'}</span>
-                                        </div>
-                                        {item.stock % (item.pieces_per_unit || 1) > 0 && (
-                                            <div className="flex items-center gap-1 text-emerald-600 font-bold border-t border-indigo-100/50 w-full justify-center mt-1 pt-1 opacity-80">
-                                                <span className="text-sm">{(item.stock % (item.pieces_per_unit || 1)).toFixed(0)}</span>
-                                                <span className="text-[8px]">قطعة متبقية</span>
-                                            </div>
-                                        )}
+                                    <div className="flex flex-col items-center bg-indigo-50/50 rounded-2xl p-3 border border-indigo-100 shadow-sm">
+                                        <span className="text-2xl font-black text-indigo-600 font-mono">
+                                            {item.total_sold || 0}
+                                        </span>
+                                        <span className="text-[9px] text-indigo-400 font-black uppercase tracking-widest mt-0.5">قطعة مباعة</span>
                                     </div>
-                                </td>
-                                <td className="px-6 py-6 text-center text-slate-500 font-black">
-                                    {item.pieces_per_unit || 1}
                                 </td>
                                 <td className="px-6 py-6 text-center">
                                     <div className="flex flex-col items-center">
-                                        <span className={`text-2xl font-black ${item.stock <= (item.min_stock || 0) ? 'text-rose-600' : 'text-slate-900'}`}>
-                                            {item.stock}
-                                        </span>
-                                        <span className="text-[10px] text-slate-400 uppercase font-black tracking-widest">إجمالي القطع</span>
+                                        <div className="flex items-baseline gap-1">
+                                            <span className={`text-2xl font-black ${item.stock <= (item.min_stock || 0) ? 'text-rose-600' : 'text-slate-900'} font-mono`}>
+                                                {item.stock}
+                                            </span>
+                                            <span className="text-[10px] text-slate-400 font-bold">قطعة</span>
+                                        </div>
+                                        <div className="flex items-center gap-1.5 mt-1">
+                                            <span className="text-[9px] text-slate-400 font-black">
+                                                ({Math.floor(item.stock / (item.pieces_per_unit || 1))} {item.unit || 'كرتونة'})
+                                            </span>
+                                        </div>
                                     </div>
                                 </td>
-                                 <td className="px-6 py-6 text-center">
-                                     <div className="flex flex-col gap-2 items-center">
-                                         <div className="bg-slate-900 text-white rounded-2xl px-4 py-2.5 flex flex-col items-center min-w-[150px] shadow-sm ring-1 ring-white/10 group-hover:scale-105 transition-transform duration-300">
-                                            <span className="text-[7px] text-slate-400 font-black uppercase tracking-widest mb-0.5">تكلفة {item.unit || 'الكرتونة'}</span>
-                                            <div className="flex items-baseline gap-1">
-                                                <span className="text-lg font-black">{((Number(item.price) || 0) * (item.pieces_per_unit || 1)).toFixed(2)}</span>
-                                                <span className="text-[8px] opacity-60">EGP</span>
-                                            </div>
-                                         </div>
-                                         <div className="flex flex-col items-center">
-                                            {(item.selling_price === null || item.selling_price === undefined || item.selling_price === 0) ? (
-                                                <span className="text-[10px] text-rose-500 font-black animate-pulse">بانتظار تحديد سعر البيع</span>
-                                            ) : (
-                                                <>
-                                                    <span className="text-sm font-black text-indigo-600">{Number(item.selling_price).toLocaleString()}</span>
-                                                    <span className="text-[8px] opacity-50 uppercase tracking-tighter">EGP</span>
-                                                </>
-                                            )}
-                                        </div>
+                                 <td className="px-6 py-6 text-center text-slate-500 font-black">
+                                     <div className="flex flex-col items-center">
+                                         <span className="text-sm font-black text-rose-600 font-mono">{Number(item.selling_price).toLocaleString()}</span>
+                                         <span className="text-[8px] text-slate-400 uppercase">EGP / قطعة</span>
                                      </div>
                                  </td>
-
                                  <td className="px-6 py-6 text-center">
-                                     <div className="flex flex-col gap-2 items-center">
-                                         {item.selling_price !== null && item.selling_price !== undefined && item.selling_price !== 0 ? (
-                                             <div className="flex flex-col items-center gap-1">
-                                                 <div className="bg-emerald-500 text-white rounded-2xl px-5 py-2.5 shadow-xl shadow-emerald-500/20 flex flex-col items-center min-w-[140px] ring-2 ring-white group-hover:-translate-y-1 transition-transform duration-300">
-                                                     <span className="text-[8px] font-black uppercase tracking-widest opacity-80 mb-0.5 whitespace-nowrap">صافي ربح {item.unit || 'الكرتونة'}</span>
-                                                     <div className="flex items-baseline gap-1">
-                                                         <span className="text-base font-black">
-                                                             {( (Number(item.selling_price) * (item.pieces_per_unit || 1)) - (Number(item.price) * (item.pieces_per_unit || 1)) ).toFixed(2)}
-                                                         </span>
-                                                         <span className="text-[8px] opacity-80">EGP</span>
-                                                     </div>
-                                                 </div>
-                                                 
-                                                 <div className="bg-emerald-50 text-emerald-600 border border-emerald-100 rounded-full px-3 py-0.5 flex items-center gap-1.5 opacity-80">
-                                                     <div className="w-1 h-1 rounded-full bg-emerald-400"></div>
-                                                     <span className="text-[8px] font-black">
-                                                         + {(Number(item.selling_price) - Number(item.price)).toFixed(2)} / للقطعة
-                                                     </span>
-                                                 </div>
-                                             </div>
-                                         ) : (
-                                             <div className="bg-slate-50 border border-dashed border-slate-200 rounded-2xl px-4 py-6 flex flex-col items-center opacity-40">
-                                                 <span className="text-[10px] font-black text-slate-400 animate-pulse font-['Cairo']">بانتظار تحديد سعر البيع</span>
-                                             </div>
-                                         )}
+                                     <div className="flex flex-col items-center gap-1">
+                                         <div className="bg-emerald-500/10 text-emerald-600 rounded-xl px-4 py-1.5 border border-emerald-100 min-w-[120px]">
+                                             <p className="text-[8px] font-black uppercase opacity-60 mb-0.5">الربح الصافي</p>
+                                             <p className="text-sm font-black font-mono">
+                                                 +{( (Number(item.selling_price) || 0) - (Number(item.price) || 0) ).toFixed(2)}
+                                             </p>
+                                         </div>
+                                         <span className="text-[8px] text-slate-400 font-black">
+                                             Cost: {Number(item.price).toFixed(2)}
+                                         </span>
                                      </div>
                                  </td>
                                 <td className="px-6 py-6">
                                     <div className="flex flex-col items-center gap-2">
-                                        <div className="w-24 h-2 bg-slate-100 rounded-full overflow-hidden">
+                                        <div className="w-24 h-2 bg-slate-100 rounded-full overflow-hidden shadow-inner">
                                             <div
-                                                className={`h-full transition-all duration-1000 ${item.stock <= (item.min_stock || 0) ? 'bg-rose-500' :
+                                                className={`h-full transition-all duration-1000 ${item.stock <= (item.min_stock || 0) ? 'bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.4)]' :
                                                     item.stock <= (item.min_stock || 0) * 2 ? 'bg-amber-500' : 'bg-emerald-500'
                                                     }`}
                                                 style={{ width: `${Math.min(100, (item.stock / ((item.min_stock || 1) * 4)) * 100)}%` }}
                                             ></div>
                                         </div>
-                                        {item.stock <= (item.min_stock || 0) && (
-                                            <span className="text-[10px] font-black text-rose-500 animate-pulse">مخزون منخفض!</span>
-                                        )}
+                                        <p className={`text-[9px] font-black uppercase tracking-tighter ${item.stock <= (item.min_stock || 0) ? 'text-rose-500 animate-pulse' : 'text-slate-400'}`}>
+                                            {item.stock <= (item.min_stock || 0) ? 'تحذير: نفاذ المخزون' : 'مستقر'}
+                                        </p>
                                     </div>
-                                </td>
-                                <td className="px-6 py-6 text-slate-400 text-[10px] text-center font-black">
-                                    {item.last_restock ? new Date(item.last_restock).toLocaleDateString('ar-EG') : '-'}
                                 </td>
                                 <td className="px-8 py-6 text-left">
                                     <div className="flex gap-2 justify-end opacity-0 group-hover:opacity-100 transition-all">
@@ -981,11 +956,11 @@ export const InventoryPanel = ({ branchId }: { branchId?: string }) => {
                                         </button>
                                     </div>
                                 </td>
-                            </tr>
+                                </tr>
                         ))
                     ) : (
                             <tr>
-                                <td colSpan={10} className="py-20 text-center text-slate-300 font-bold">
+                                <td colSpan={7} className="py-20 text-center text-slate-300 font-bold">
                                     لا توجد أصناف مسجلة
                                 </td>
                             </tr>
@@ -1033,3 +1008,5 @@ export const InventoryPanel = ({ branchId }: { branchId?: string }) => {
         </div>
     );
 };
+
+export default InventoryPanel;
