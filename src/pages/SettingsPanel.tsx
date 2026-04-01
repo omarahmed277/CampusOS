@@ -55,6 +55,10 @@ export const SettingsPanel = ({ branchId }: { branchId?: string }) => {
   const [smtpUser, setSmtpUser] = useState('');
   const [smtpPass, setSmtpPass] = useState('');
   const [testing, setTesting] = useState(false);
+  
+  // Loyalty Settings
+  const [pointsPerHour, setPointsPerHour] = useState('10');
+  const [cashbackRatio, setCashbackRatio] = useState('6');
 
   useEffect(() => {
     fetchSettings();
@@ -176,7 +180,9 @@ export const SettingsPanel = ({ branchId }: { branchId?: string }) => {
       'smtp_host',
       'smtp_port',
       'smtp_user',
-      'smtp_password'
+      'smtp_password',
+      'points_per_hour',
+      'cashback_ratio'
     ]);
     if (data) {
       setEmailBody(data.find((s: any) => s.key === 'welcome_email_template')?.value || '');
@@ -185,6 +191,8 @@ export const SettingsPanel = ({ branchId }: { branchId?: string }) => {
       setSmtpPort(data.find((s: any) => s.key === 'smtp_port')?.value || '465');
       setSmtpUser(data.find((s: any) => s.key === 'smtp_user')?.value || '');
       setSmtpPass(data.find((s: any) => s.key === 'smtp_password')?.value || '');
+      setPointsPerHour(data.find((s: any) => s.key === 'points_per_hour')?.value || '10');
+      setCashbackRatio(data.find((s: any) => s.key === 'cashback_ratio')?.value || '6');
     }
     setLoading(false);
   };
@@ -197,7 +205,9 @@ export const SettingsPanel = ({ branchId }: { branchId?: string }) => {
       { key: 'smtp_host', value: smtpHost, updated_at: new Date().toISOString() },
       { key: 'smtp_port', value: smtpPort, updated_at: new Date().toISOString() },
       { key: 'smtp_user', value: smtpUser, updated_at: new Date().toISOString() },
-      { key: 'smtp_password', value: smtpPass, updated_at: new Date().toISOString() }
+      { key: 'smtp_password', value: smtpPass, updated_at: new Date().toISOString() },
+      { key: 'points_per_hour', value: pointsPerHour, updated_at: new Date().toISOString() },
+      { key: 'cashback_ratio', value: cashbackRatio, updated_at: new Date().toISOString() }
     ];
     await sb.from('settings').upsert(updates, { onConflict: 'key' });
     showNotification('تم حفظ إعدادات البريد والسيرفر');
@@ -279,6 +289,68 @@ export const SettingsPanel = ({ branchId }: { branchId?: string }) => {
                 </div>
               </div>
             ))}
+          </div>
+        </CardContent>
+      </Card>
+ 
+      {/* Loyalty System Settings */}
+      <Card className="border-none shadow-purple-100 shadow-xl overflow-hidden relative">
+        <div className="absolute top-0 left-0 w-48 h-48 bg-purple-600 rounded-br-[10rem] opacity-5"></div>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="p-3 bg-purple-600 text-white rounded-2xl"><Award size={24} /></div>
+            <div>
+              <CardTitle>نظام الولاء والكاش باك</CardTitle>
+              <CardDescription>التحكم في نقاط المكافآت ومعادلة الاسترداد النقدي</CardDescription>
+            </div>
+          </div>
+          <Button className="bg-purple-600" onClick={saveSettings}>
+            <Save size={16} className="ml-2" /> حفظ إعدادات الولاء
+          </Button>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div className="bg-purple-50/50 p-6 rounded-[2rem] border border-purple-100 space-y-4">
+                <div className="flex items-center gap-3 mb-2">
+                    <div className="w-8 h-8 bg-purple-100 text-purple-600 rounded-lg flex items-center justify-center font-bold">1</div>
+                    <p className="font-black text-slate-800 text-lg">معامل كسب النقاط</p>
+                </div>
+                <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                        <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">عدد النقاط لكل 1 ساعة</label>
+                        <Input 
+                            type="number" 
+                            className="w-24 text-center h-12 rounded-xl text-lg font-black border-2 border-purple-200"
+                            value={pointsPerHour} 
+                            onChange={e => setPointsPerHour(e.target.value)} 
+                        />
+                    </div>
+                    <p className="text-[10px] font-bold text-slate-500 leading-relaxed bg-white/80 p-3 rounded-xl border border-purple-50">
+                        * يحدد هذا الرقم كمية النقاط التي يحصل عليها العميل مقابل كل ساعة يقضيها في مساحة العمل. (مثال: 10 نقاط/ساعة)
+                    </p>
+                </div>
+            </div>
+
+            <div className="bg-indigo-50/50 p-6 rounded-[2rem] border border-indigo-100 space-y-4">
+                <div className="flex items-center gap-3 mb-2">
+                    <div className="w-8 h-8 bg-indigo-100 text-indigo-600 rounded-lg flex items-center justify-center font-bold">2</div>
+                    <p className="font-black text-slate-800 text-lg">تحويل النقاط لكاش باك</p>
+                </div>
+                <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                        <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">معدل التحويل (قسمة النقاط)</label>
+                        <Input 
+                            type="number" 
+                            className="w-24 text-center h-12 rounded-xl text-lg font-black border-2 border-indigo-200"
+                            value={cashbackRatio} 
+                            onChange={e => setCashbackRatio(e.target.value)} 
+                        />
+                    </div>
+                    <p className="text-[10px] font-bold text-slate-500 leading-relaxed bg-white/80 p-3 rounded-xl border border-indigo-50">
+                        * المعادلة: (إجمالي النقاط ÷ المعدل) = المبلغ المردود بالجنيه. (مثال: إذا كان المعدل 6، سيحصل العميل على 100 جنيه لكل 600 نقطة)
+                    </p>
+                </div>
+            </div>
           </div>
         </CardContent>
       </Card>

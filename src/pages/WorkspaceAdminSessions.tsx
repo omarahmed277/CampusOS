@@ -26,6 +26,7 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
   const [manualCode, setManualCode] = useState('');
   const [startingSession, setStartingSession] = useState(false);
   const [inventory, setInventory] = useState<any[]>([]);
+  const [pointsPerHour, setPointsPerHour] = useState(10);
 
   // Helper to format UTC ISO to Cairo Local YYYY-MM-DDTHH:mm
   const toCairoInput = (iso?: string | Date) => {
@@ -84,6 +85,14 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
       supabase.removeChannel(channel);
     };
   }, [branchId]);
+
+  useEffect(() => {
+    const fetchPointsPerHour = async () => {
+      const { data } = await supabase.from('settings').select('value').eq('key', 'points_per_hour').single();
+      if (data?.value) setPointsPerHour(Number(data.value));
+    };
+    fetchPointsPerHour();
+  }, []);
 
   const fetchSessions = async () => {
     setLoading(true);
@@ -296,7 +305,7 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
 
       // 3. Award Loyalty Points
       if (editingBill.customerId) {
-        const pointsToAward = Math.floor(Number(editingBill.diffMinutes || 0) / 12);
+        const pointsToAward = Math.floor(Number(editingBill.diffMinutes || 0) / (60 / pointsPerHour));
         if (pointsToAward > 0) {
           const { data: currentCust } = await supabase
             .from('customers')

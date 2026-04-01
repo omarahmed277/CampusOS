@@ -33,6 +33,10 @@ export const WorkspaceLogin = () => {
   const [profileData, setProfileData] = useState<any>(null);
   const [activeSub, setActiveSub] = useState<any>(null);
   const [isConverting, setIsConverting] = useState(false);
+  
+  // Dynamic Loyalty Settings
+  const [ptsPerHour, setPtsPerHour] = useState(10);
+  const [cbRatio, setCbRatio] = useState(6);
 
   const [college, setCollege] = useState('');
   const [customCollege, setCustomCollege] = useState('');
@@ -40,6 +44,7 @@ export const WorkspaceLogin = () => {
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [showCheckoutConfirm, setShowCheckoutConfirm] = useState(false);
   const [regSuccessData, setRegSuccessData] = useState<{name: string, code: string, email: string} | null>(null);
+  const [totalMinutes, setTotalMinutes] = useState(0);
 
   const colleges = [
     'كلية الهندسة',
@@ -627,6 +632,18 @@ export const WorkspaceLogin = () => {
         setProfileData(customer);
         const sub = customer.subscriptions?.find((s: any) => s.status === 'Active' && new Date(s.end_date) >= new Date());
         setActiveSub(sub || null);
+
+        // Fetch cumulative hours
+        const { data: sessionsData } = await supabase
+            .from('workspace_sessions')
+            .select('total_minutes')
+            .eq('customer_id', session.customer_id)
+            .eq('status', 'completed');
+        
+        if (sessionsData) {
+            const total = sessionsData.reduce((sum, s) => sum + (Number(s.total_minutes) || 0), 0);
+            setTotalMinutes(total);
+        }
       }
     } catch (err) {
       console.error("Profile sync error:", err);
@@ -639,12 +656,25 @@ export const WorkspaceLogin = () => {
     }
   }, [session?.customer_id]);
 
+  useEffect(() => {
+    const fetchLoyaltySettings = async () => {
+      const { data } = await supabase.from('settings').select('key, value').in('key', ['points_per_hour', 'cashback_ratio']);
+      if (data) {
+        const ph = data.find(s => s.key === 'points_per_hour')?.value;
+        const cr = data.find(s => s.key === 'cashback_ratio')?.value;
+        if (ph) setPtsPerHour(Number(ph));
+        if (cr) setCbRatio(Number(cr));
+      }
+    };
+    fetchLoyaltySettings();
+  }, []);
+
   const convertPointsToCashback = async () => {
     if (!profileData || profileData.loyalty_points < 100) return;
     setIsConverting(true);
     try {
         const pointsToConvert = Math.floor(profileData.loyalty_points / 100) * 100;
-        const rewardAmount = (pointsToConvert / 100) * 40; // 100 points = 40 EGP (500 pts = 200 EGP)
+        const rewardAmount = parseFloat((pointsToConvert / cbRatio).toFixed(2)); // Dynamic conversion based on settings
 
         const { error } = await supabase
             .from('customers')
@@ -656,9 +686,10 @@ export const WorkspaceLogin = () => {
 
         if (error) throw error;
         await fetchProfileData();
-        alert(`تم تحويل ${pointsToConvert} نقطة إلى ${rewardAmount} جنيه كاش باك! ✨`);
+        // Modern notification via session state or simple feedback
+        console.log(`Converted ${pointsToConvert} points to ${rewardAmount} EGP`);
     } catch (err: any) {
-        alert("فشل التحويل: " + err.message);
+        console.error("Conversion failure:", err.message);
     } finally {
         setIsConverting(false);
     }
@@ -719,6 +750,24 @@ export const WorkspaceLogin = () => {
                 <span className="font-bold text-slate-300">المبلغ الإجمالي المطلـوب:</span>
                 <span className="font-black text-[#1ed788] text-2xl">{session.total_amount} EGP</span>
               </div>
+
+              {/* Loyalty Reward Preview */}
+              <div className="pt-4 mt-2 border-t border-white/5 flex flex-col items-center gap-2 animate-pulse bg-indigo-500/5 rounded-2xl p-4">
+                  <div className="flex items-center gap-2 text-indigo-400">
+                      <Zap size={16} />
+                      <span className="text-xs font-black uppercase tracking-widest">لقد حصلت على نقاط ولاء</span>
+                  </div>
+                  <div className="flex items-center justify-between w-full">
+                      <div className="text-right">
+                          <p className="text-[10px] font-bold text-slate-500">النقاط المكتسبة</p>
+                          <p className="text-lg font-black text-white">+{Math.floor((Number(session.total_minutes) || 0) / (60 / ptsPerHour))} نقطة</p>
+                      </div>
+                      <div className="text-right">
+                          <p className="text-[10px] font-bold text-slate-500">القيمة المالية</p>
+                          <p className="text-lg font-black text-emerald-400">{(Math.floor((Number(session.total_minutes) || 0) / (60 / ptsPerHour)) / cbRatio).toFixed(2)} EGP</p>
+                      </div>
+                  </div>
+              </div>
             </div>
             <button
               onClick={handleDone}
@@ -765,10 +814,7 @@ export const WorkspaceLogin = () => {
             </div>
           </div>
 
-          <div className="hidden md:flex flex-col items-end opacity-40 hover:opacity-100 transition-opacity">
-             <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1">Branch Instance</p>
-             <p className="text-[10px] font-black text-white">Main HUB • C-01</p>
-          </div>
+          
         </div>
 
         {/* MAIN SCROLLABLE CONTENT */}
@@ -1284,9 +1330,12 @@ export const WorkspaceLogin = () => {
                   <div className="bg-gradient-to-br from-indigo-600 to-indigo-900 p-5 md:p-6 rounded-[2rem] md:rounded-[2.5rem] border border-white/10 shadow-2xl relative overflow-hidden group">
                      <div className="absolute top-0 right-0 w-24 h-24 bg-white/10 rounded-full blur-2xl -translate-y-8 translate-x-8" />
                      <Zap className="text-white opacity-20 absolute bottom-4 left-4 group-hover:scale-125 transition-transform" size={32} md:size={40} />
+                     <div className="absolute top-4 left-4 animate-bounce">
+                        <Sparkles className="text-amber-400 opacity-50" size={16} />
+                     </div>
                      <p className="text-[9px] md:text-[10px] font-black text-indigo-200 uppercase tracking-widest mb-1 text-right">نقاط الولاء</p>
                      <h3 className="text-2xl md:text-3xl font-black text-white text-right font-mono">{profileData?.loyalty_points || 0}</h3>
-                     <p className="text-[8px] md:text-[9px] font-bold text-indigo-300 text-right mt-1">5 نقاط لكل ساعة</p>
+                     <p className="text-[8px] md:text-[9px] font-bold text-indigo-300 text-right mt-1">{ptsPerHour} نقاط لكل ساعة</p>
                   </div>
                   <div className="bg-gradient-to-br from-emerald-600 to-emerald-900 p-5 md:p-6 rounded-[2rem] md:rounded-[2.5rem] border border-white/10 shadow-2xl relative overflow-hidden group">
                      <div className="absolute top-0 right-0 w-24 h-24 bg-white/10 rounded-full blur-2xl -translate-y-8 translate-x-8" />
@@ -1298,6 +1347,15 @@ export const WorkspaceLogin = () => {
                      </h3>
                      <p className="text-[8px] md:text-[9px] font-bold text-emerald-300 text-right mt-1">رصيد متاح للاستخدام</p>
                   </div>
+                  <div className="col-span-2 bg-gradient-to-br from-slate-700 to-slate-900 p-5 md:p-6 rounded-[2rem] md:rounded-[2.5rem] border border-white/10 shadow-2xl relative overflow-hidden group">
+                     <div className="absolute top-0 right-0 w-24 h-24 bg-white/10 rounded-full blur-2xl -translate-y-8 translate-x-8" />
+                     <Clock className="text-white opacity-20 absolute bottom-4 left-4 group-hover:scale-125 transition-transform" size={32} md:size={40} />
+                     <p className="text-[9px] md:text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 text-right">إجمالي الساعات</p>
+                     <h3 className="text-2xl md:text-3xl font-black text-white text-right font-mono">
+                        {(totalMinutes / 60).toFixed(0)} <span className="text-xs">H</span> {(totalMinutes % 60).toString().padStart(2, '0')} <span className="text-xs">M</span>
+                     </h3>
+                     <p className="text-[8px] md:text-[9px] font-bold text-slate-500 text-right mt-1">الوقت الإجمالي الذي قضيته في كلاود</p>
+                  </div>
                </div>
 
                {/* Points Conversion Card */}
@@ -1305,7 +1363,7 @@ export const WorkspaceLogin = () => {
                  <div className="bg-white/5 border border-white/10 rounded-[2.5rem] p-6 flex items-center justify-between gap-4 backdrop-blur-xl group hover:border-indigo-500/50 transition-all">
                     <div className="text-right">
                        <h4 className="font-black text-white text-sm">حول نقاطك إلى نقود</h4>
-                       <p className="text-[10px] font-bold text-slate-500">كل 100 نقطة = 40 جنيه كاش باك</p>
+                       <p className="text-[10px] font-bold text-slate-500">كل 100 نقطة = {(100 / cbRatio).toFixed(2)} جنيه كاش باك</p>
                     </div>
                     <button 
                        onClick={convertPointsToCashback}
