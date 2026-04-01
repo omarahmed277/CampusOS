@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Clock, CheckCircle2, AlertCircle, RefreshCw, X, Receipt, Users2, Sparkles } from 'lucide-react';
+import { Clock, CheckCircle2, AlertCircle, RefreshCw, X, Receipt, Users2, Sparkles, Plus, Lock } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { calculateSessionPrice } from '../lib/pricing';
 import { Modal } from '../components/ui';
@@ -68,10 +68,20 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
         (payload) => {
           const newData = payload.new as any;
           const oldData = payload.old as any;
+          const eventType = payload.eventType;
           
           // Only refresh if the change belongs to our branch or was moved out of it
           if (newData?.branch_id === branchId || oldData?.branch_id === branchId) {
-            fetchSessions();
+            if (eventType === 'UPDATE') {
+                setSessions(prev => prev.map(session => 
+                    session.id === newData.id ? { ...session, ...newData } : session
+                ));
+                // Optional: still fetch to ensure all joins (like customers) are fresh, 
+                // but state is updated immediately for status/pause flags
+                fetchSessions();
+            } else {
+              fetchSessions();
+            }
           }
         }
       )
@@ -101,14 +111,16 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
         .from('workspace_sessions')
         .select(`*, customers(full_name, subscriptions(*))`)
         .eq('branch_id', branchId || '')
-        .in('status', ['active', 'checkout_requested'])
+        .in('status', ['active', 'checkout_requested', 'pause_requested', 'paused', 'resume_requested'])
         .order('start_time', { ascending: false });
 
       if (error) throw error;
       
       const sorted = (data as any[]).sort((a, b) => {
-        if (a.status === 'checkout_requested' && b.status !== 'checkout_requested') return -1;
-        if (a.status !== 'checkout_requested' && b.status === 'checkout_requested') return 1;
+        const isReqA = ['checkout_requested', 'pause_requested', 'resume_requested'].includes(a.status);
+        const isReqB = ['checkout_requested', 'pause_requested', 'resume_requested'].includes(b.status);
+        if (isReqA && !isReqB) return -1;
+        if (!isReqA && isReqB) return 1;
         return new Date(b.start_time).getTime() - new Date(a.start_time).getTime();
       });
       
@@ -117,6 +129,48 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
       console.error(err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleApprovePause = async (session: any) => {
+    try {
+        const { error } = await (supabase as any)
+          .from('workspace_sessions')
+          .update({ 
+              status: 'paused',
+              is_paused: true,
+              last_pause_start: new Date().toISOString()
+          })
+          .eq('id', session.id);
+        
+        if (error) throw error;
+        fetchSessions();
+    } catch (err: any) {
+        alert("Error pausing session: " + err.message);
+    }
+  };
+
+  const handleApproveResume = async (session: any) => {
+    try {
+        const now = new Date();
+        const pauseStart = new Date(session.last_pause_start);
+        const diffMins = Math.max(0, (now.getTime() - pauseStart.getTime()) / 60000);
+        const newTotalPaused = (Number(session.total_paused_minutes) || 0) + diffMins;
+
+        const { error } = await (supabase as any)
+          .from('workspace_sessions')
+          .update({ 
+              status: 'active',
+              is_paused: false,
+              last_pause_start: null,
+              total_paused_minutes: newTotalPaused
+          })
+          .eq('id', session.id);
+        
+        if (error) throw error;
+        fetchSessions();
+    } catch (err: any) {
+        alert("Error resuming session: " + err.message);
     }
   };
 
@@ -270,7 +324,8 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
           catering_amount: Number(editingBill.cateringAmount) || 0,
           orders: editingBill.orders || [],
           total_amount: Number(editingBill.totalAmount) || 0,
-          payment_method: editingBill.isSubscribed ? 'subscription' : 'cash'
+          payment_method: editingBill.isSubscribed ? 'subscription' : 'cash',
+          notes: editingBill.notes || ''
         })
         .eq('id', editingBill.id);
 
@@ -497,8 +552,10 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
               <AlertCircle size={32} className="text-amber-500 hidden md:block" />
             </div>
             <div>
-              <p className="text-slate-400 font-black text-[10px] md:text-sm mb-0.5 uppercase tracking-widest">طلبات خروج</p>
-              <h3 className="text-2xl md:text-4xl font-black text-amber-600">{requestedCount}</h3>
+               <p className="text-slate-400 font-black text-[10px] md:text-sm mb-0.5 uppercase tracking-widest">طلبات معلقة</p>
+               <h3 className="text-2xl md:text-4xl font-black text-amber-600">
+                  {sessions.filter(s => ['checkout_requested', 'pause_requested', 'resume_requested'].includes(s.status)).length}
+               </h3>
             </div>
           </div>
         </div>
@@ -534,8 +591,11 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
                 </tr>
               </thead>
               <tbody>
-                {sessions.map((session) => {
-                  const diffMs = now - new Date(session.start_time).getTime();
+                {sessions.map((session: any) => {
+                  const start = new Date(session.start_time).getTime();
+                  const currentRefTime = session.is_paused ? new Date(session.last_pause_start).getTime() : now;
+                  const totalPausedMs = (Number(session.total_paused_minutes) || 0) * 60000;
+                  const diffMs = Math.max(0, currentRefTime - start - totalPausedMs);
                   const totalMins = Math.floor(diffMs / 60000);
                   const hrs = Math.floor(totalMins / 60);
                   const mins = totalMins % 60;
@@ -577,9 +637,10 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
                         {new Date(session.start_time).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}
                       </td>
                       <td className="py-6 px-6">
-                        <div className="font-mono text-lg font-black text-indigo-600 flex items-center gap-2">
-                          <Clock size={16} />
+                        <div className={`font-mono text-lg font-black flex items-center gap-2 ${session.is_paused ? 'text-amber-500' : 'text-indigo-600'}`}>
+                          <Clock size={16} className={session.is_paused ? '' : 'animate-pulse'} />
                           {hrs}س {mins}د
+                          {session.is_paused && <span className="text-[10px] bg-amber-100 px-1.5 py-0.5 rounded ml-2">P</span>}
                         </div>
                       </td>
                       <td className="py-6 px-6">
@@ -591,36 +652,73 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
                         </div>
                       </td>
                       <td className="py-6 px-6">
-                        {session.status === 'checkout_requested' ? (
-                          <div className="bg-amber-100/50 border border-amber-200 text-amber-700 px-4 py-1.5 rounded-2xl text-[11px] font-black flex items-center gap-2 w-max animate-pulse">
-                            <AlertCircle size={14} /> يطلب الخروج
-                          </div>
-                        ) : (
-                          <div className="bg-emerald-100/50 border border-emerald-200 text-emerald-700 px-4 py-1.5 rounded-2xl text-[11px] font-black flex items-center gap-2 w-max">
-                            <CheckCircle2 size={14} /> نشط الآن
-                          </div>
-                        )}
+                        <div className="flex flex-col gap-2">
+                            {session.status === 'checkout_requested' && (
+                              <div className="bg-rose-100 text-rose-700 px-4 py-1.5 rounded-2xl text-[11px] font-black flex items-center gap-2 w-max animate-pulse">
+                                <AlertCircle size={14} /> يطلب الخروج
+                              </div>
+                            )}
+                            {session.status === 'pause_requested' && (
+                              <div className="bg-amber-100 text-amber-700 px-4 py-1.5 rounded-2xl text-[11px] font-black flex items-center gap-2 w-max animate-pulse">
+                                <Clock size={14} /> طلب إيقاف
+                              </div>
+                            )}
+                            {session.status === 'resume_requested' && (
+                              <div className="bg-emerald-100 text-emerald-700 px-4 py-1.5 rounded-2xl text-[11px] font-black flex items-center gap-2 w-max animate-pulse">
+                                <RefreshCw size={14} /> طلب عودة
+                              </div>
+                            )}
+                            {session.status === 'paused' && (
+                              <div className="bg-slate-200 text-slate-700 px-4 py-1.5 rounded-2xl text-[11px] font-black flex items-center gap-2 w-max">
+                                <Lock size={14} /> متوقف مؤقتاً
+                              </div>
+                            )}
+                            {session.status === 'active' && (
+                              <div className="bg-emerald-100/50 border border-emerald-200 text-emerald-700 px-4 py-1.5 rounded-2xl text-[11px] font-black flex items-center gap-2 w-max">
+                                <CheckCircle2 size={14} /> نشط الآن
+                              </div>
+                            )}
+                        </div>
                       </td>
                       <td className="py-6 px-6">
-                        <div className="flex flex-col gap-2">
-                          <button
-                            onClick={() => handlePrepareCheckout(session)}
-                            className={`px-6 py-3 rounded-2xl text-white font-black text-sm transition-all hover:-translate-y-1 active:scale-95 shadow-lg ${
-                              session.status === 'checkout_requested' 
-                                ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/20' 
-                                : 'bg-slate-900 hover:bg-black shadow-slate-900/20'
-                            }`}
-                          >
-                            إنهاء و محاسبة
-                          </button>
-                          {session.status === 'checkout_requested' && (
-                            <button
-                              onClick={() => handleCancelCheckoutRequest(session.id)}
-                              className="px-4 py-1.5 text-rose-500 hover:bg-rose-50 rounded-xl text-[10px] font-black transition-colors flex items-center justify-center gap-1"
-                            >
-                              <X size={12} /> إلغاء طلب الخروج
-                            </button>
-                          )}
+                        <div className="flex items-center gap-2">
+                             <button 
+                               onClick={() => handlePrepareCheckout(session)}
+                               className="p-3 bg-rose-50 text-rose-600 hover:bg-rose-100 rounded-2xl transition-all"
+                               title="Checkout"
+                             >
+                               <Receipt size={20} />
+                             </button>
+                             
+                             {session.status === 'pause_requested' && (
+                                <button 
+                                  onClick={() => handleApprovePause(session)}
+                                  className="p-3 bg-amber-500 text-white hover:bg-amber-600 rounded-2xl transition-all animate-bounce shadow-lg shadow-amber-500/30"
+                                  title="Approve Pause"
+                                >
+                                  <Lock size={20} />
+                                </button>
+                             )}
+
+                             {session.status === 'resume_requested' && (
+                                <button 
+                                  onClick={() => handleApproveResume(session)}
+                                  className="p-3 bg-emerald-500 text-white hover:bg-emerald-600 rounded-2xl transition-all animate-bounce shadow-lg shadow-emerald-500/30"
+                                  title="Approve Resume"
+                                >
+                                  <RefreshCw size={20} />
+                                </button>
+                             )}
+
+                             {session.status === 'paused' && (
+                                <button 
+                                  onClick={() => handleApproveResume(session)}
+                                  className="p-3 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 rounded-2xl transition-all"
+                                  title="Manual Resume"
+                                >
+                                  <Plus size={20} />
+                                </button>
+                             )}
                         </div>
                       </td>
                     </tr>
@@ -908,6 +1006,17 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
                     <p className="text-center py-6 text-slate-400 text-xs font-bold bg-slate-50 rounded-2xl border-2 border-dashed border-slate-100">لا توجد طلبات مسجلة</p>
                   )}
                 </div>
+              </div>
+
+              {/* Administrative Notes */}
+              <div className="bg-slate-50 p-6 rounded-[2.5rem] border border-slate-100 relative group/notes">
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 text-right">ملاحظات إضافية (Admin Notes)</label>
+                <textarea 
+                  className="w-full h-24 bg-white border border-slate-200 rounded-2xl p-4 text-xs font-black outline-none focus:border-indigo-400 transition-all text-right resize-none placeholder:text-slate-200 shadow-sm"
+                  placeholder="أضف أي ملاحظات حول هذه الجلسة هنا..."
+                  value={editingBill.notes || ''}
+                  onChange={(e) => setEditingBill({...editingBill, notes: e.target.value})}
+                />
               </div>
 
               <div className="mt-8 pt-8 border-t border-slate-100">

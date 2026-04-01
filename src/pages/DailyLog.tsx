@@ -16,6 +16,7 @@ interface Session {
   total_minutes?: number;
   total_amount?: number;
   payment_method?: string;
+  notes?: string;
   customers?: { 
     full_name: string,
     code: string,
@@ -57,6 +58,12 @@ const SessionRow = ({ session, onEdit, onDelete }: {
                   )}
                </div>
             </div>
+            {session.notes && (
+               <div className="mt-4 px-3 py-1.5 bg-amber-50/50 border border-amber-100/50 rounded-xl flex items-start gap-2 max-w-[180px] group-hover:bg-amber-50 transition-all self-end">
+                  <Edit3 size={10} className="text-amber-400 mt-1 shrink-0" />
+                  <p className="text-[9px] text-amber-700 font-bold italic line-clamp-2 text-right w-full">{session.notes}</p>
+               </div>
+            )}
          </div>
       </td>
 
@@ -134,6 +141,8 @@ export const DailyLog = ({ branchId }: { branchId?: string }) => {
   const [subscriptions, setSubscriptions] = useState<any[]>([]);
   const [expenses, setExpenses] = useState<any[]>([]);
   const [inventory, setInventory] = useState<any[]>([]);
+  const [dailyClosing, setDailyClosing] = useState<any>(null);
+  const [dailyNote, setDailyNote] = useState('');
   const [loading, setLoading] = useState(true);
   
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
@@ -145,6 +154,7 @@ export const DailyLog = ({ branchId }: { branchId?: string }) => {
   const [editCatering, setEditCatering] = useState('');
   const [editTotal, setEditTotal] = useState('');
   const [editOrders, setEditOrders] = useState<any[]>([]);
+  const [editNotes, setEditNotes] = useState('');
 
   // Helper to format UTC ISO to Cairo Local YYYY-MM-DDTHH:mm
   const toCairoInput = (iso?: string | Date) => {
@@ -186,6 +196,12 @@ export const DailyLog = ({ branchId }: { branchId?: string }) => {
         event: '*', 
         schema: 'public', 
         table: 'expenses',
+        filter: `branch_id=eq.${branchId}` 
+      }, () => fetchLogData())
+      .on('postgres_changes', { 
+        event: '*', 
+        schema: 'public', 
+        table: 'daily_closings',
         filter: `branch_id=eq.${branchId}` 
       }, () => fetchLogData())
       .subscribe();
@@ -258,6 +274,17 @@ export const DailyLog = ({ branchId }: { branchId?: string }) => {
         .eq('date', selectedDate);
       setExpenses(expData || []);
 
+      // 4. Fetch Daily Closing Notes
+      const { data: closingData } = await (supabase as any)
+        .from('daily_closings')
+        .select('*')
+        .eq('branch_id', branchId)
+        .eq('date', selectedDate)
+        .maybeSingle();
+      
+      setDailyClosing(closingData);
+      setDailyNote(closingData?.notes || '');
+
     } catch (err) {
       console.error(err);
     } finally {
@@ -306,7 +333,8 @@ export const DailyLog = ({ branchId }: { branchId?: string }) => {
           end_time: fromCairoInput(editEndTime),
           catering_amount: parseFloat(editCatering) || 0,
           total_amount: parseFloat(editTotal) || 0,
-          orders: editOrders
+          orders: editOrders,
+          notes: editNotes
         })
         .eq('id', editingSession.id);
 
@@ -315,6 +343,39 @@ export const DailyLog = ({ branchId }: { branchId?: string }) => {
       fetchLogData();
     } catch (err: any) {
       alert('خطأ في التحديث: ' + err.message);
+    }
+  };
+
+  const handleUpdateDailyNote = async () => {
+    if (!branchId) return;
+    try {
+      setLoading(true);
+      if (dailyClosing) {
+        const { error } = await (supabase as any)
+          .from('daily_closings')
+          .update({ notes: dailyNote })
+          .eq('id', dailyClosing.id);
+        if (error) throw error;
+      } else {
+        // Create a new closing record if none exists for the day
+        const { error } = await (supabase as any)
+          .from('daily_closings')
+          .insert({
+            branch_id: branchId,
+            date: selectedDate,
+            notes: dailyNote,
+            expected_cash: 0,
+            actual_cash: 0,
+            difference: 0
+          });
+        if (error) throw error;
+      }
+      alert('تم حفظ الملاحظات بنجاح');
+      fetchLogData();
+    } catch (err: any) {
+      alert('خطأ في حفظ الملاحظات: ' + err.message);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -428,6 +489,35 @@ export const DailyLog = ({ branchId }: { branchId?: string }) => {
         </div>
       </div>
 
+      {/* Daily Admin Notes Section */}
+      <div className="bg-white/50 backdrop-blur-xl rounded-[2.5rem] lg:rounded-[3.5rem] border border-white shadow-sm p-6 lg:p-10">
+        <div className="flex flex-row-reverse justify-between items-center mb-6">
+           <div className="flex flex-row-reverse items-center gap-4">
+              <div className="w-12 h-12 bg-indigo-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-indigo-600/20">
+                 <Edit3 size={24} />
+              </div>
+              <div className="text-right">
+                 <h3 className="text-xl font-black text-slate-800">ملاحظات اليوم الإدارية</h3>
+                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Daily Signed Notes by Admin</p>
+              </div>
+           </div>
+           <button 
+             onClick={handleUpdateDailyNote}
+             disabled={loading}
+             className="px-8 py-3 bg-slate-900 text-white rounded-2xl font-black text-sm hover:bg-indigo-600 transition-all active:scale-95 flex items-center gap-2"
+           >
+             <Save size={18} />
+             <span>حفظ الملاحظة</span>
+           </button>
+        </div>
+        <textarea 
+          value={dailyNote}
+          onChange={(e) => setDailyNote(e.target.value)}
+          placeholder="أضف ملاحظاتك العامة لليوم هنا (المشتريات الكبرى، الأعطال، المهام المنجزة...)"
+          className="w-full h-32 bg-white/80 border-2 border-slate-50 rounded-3xl p-6 text-sm font-black text-slate-800 outline-none focus:border-indigo-400 transition-all text-right resize-none placeholder:text-slate-200 shadow-inner"
+        />
+      </div>
+
       <div className="bg-white/70 backdrop-blur-xl rounded-[2.5rem] lg:rounded-[3.5rem] border border-white shadow-[0_20px_50px_rgba(0,0,0,0.03)] overflow-hidden">
         <div className="p-6 lg:p-10 border-b border-slate-100 bg-slate-50/20">
           <h3 className="text-xl lg:text-2xl font-black text-slate-800 tracking-tight text-center lg:text-right">تحليل تفاصيل الحضور</h3>
@@ -457,6 +547,7 @@ export const DailyLog = ({ branchId }: { branchId?: string }) => {
                     setEditCatering(s.catering_amount.toString());
                     setEditTotal(s.total_amount?.toString() || '0');
                     setEditOrders(s.orders || []);
+                    setEditNotes(s.notes || '');
                   }}
                   onDelete={handleDeleteSession}
                 />
@@ -497,6 +588,7 @@ export const DailyLog = ({ branchId }: { branchId?: string }) => {
                             setEditCatering(session.catering_amount.toString());
                             setEditTotal(session.total_amount?.toString() || '0');
                             setEditOrders(session.orders || []);
+                            setEditNotes(session.notes || '');
                          }}
                          className="p-2.5 bg-indigo-50 text-indigo-600 rounded-xl active:scale-90"
                        >
@@ -649,6 +741,16 @@ export const DailyLog = ({ branchId }: { branchId?: string }) => {
                         className="w-full h-16 bg-slate-50 border-2 border-slate-100 rounded-3xl px-6 text-sm font-black text-slate-800 outline-none focus:border-indigo-400 transition-all text-center"
                       />
                    </div>
+                </div>
+
+                <div className="space-y-3">
+                   <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest text-right mr-2">ملاحظات المسؤول (Admin Notes)</label>
+                   <textarea 
+                      value={editNotes}
+                      onChange={(e) => setEditNotes(e.target.value)}
+                      placeholder="أضف ملاحظاتك حول السيشن هنا..."
+                      className="w-full h-24 bg-slate-50 border-2 border-slate-100 rounded-3xl p-6 text-sm font-black text-slate-800 outline-none focus:border-indigo-400 transition-all text-right resize-none placeholder:text-slate-200 shadow-inner"
+                   />
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">

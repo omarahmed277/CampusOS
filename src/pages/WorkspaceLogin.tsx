@@ -216,11 +216,12 @@ export const WorkspaceLogin = () => {
 
   useEffect(() => {
     let interval: NodeJS.Timeout;
-    if (session && session.status === 'active') {
+    if (session && (session.status === 'active' || session.status === 'paused' || session.status === 'pause_requested' || session.status === 'checkout_requested')) {
       interval = setInterval(() => {
         const start = new Date(session.start_time).getTime();
-        const now = new Date().getTime();
-        const diff = now - start;
+        const currentRefTime = session.is_paused ? new Date(session.last_pause_start).getTime() : new Date().getTime();
+        const totalPausedMs = (Number(session.total_paused_minutes) || 0) * 60000;
+        const diff = Math.max(0, currentRefTime - start - totalPausedMs);
 
         const hours = Math.floor(diff / (1000 * 60 * 60));
         const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
@@ -232,7 +233,7 @@ export const WorkspaceLogin = () => {
       }, 1000);
     }
     return () => clearInterval(interval);
-  }, [session]);
+  }, [session, session?.total_paused_minutes, session?.is_paused, session?.last_pause_start]);
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -396,7 +397,7 @@ export const WorkspaceLogin = () => {
         .select('*, customers(full_name)')
         .eq('user_code', cleanCode)
         .ilike('phone_number', `%${cleanPhone}`)
-        .in('status', ['active', 'checkout_requested'])
+        .in('status', ['active', 'checkout_requested', 'pause_requested', 'paused'])
         .maybeSingle();
 
       if (existingSess) {
@@ -614,9 +615,72 @@ export const WorkspaceLogin = () => {
   const handleDone = () => {
     setSession(null);
     setUserCode('');
-    setPhoneNumber('');
     setProfileData(null);
     setActiveSub(null);
+  };
+
+  const handleRequestPause = async (newStatus: string) => {
+    if (!session) return;
+    try {
+        const { error } = await (supabase as any)
+            .from('workspace_sessions')
+            .update({ status: newStatus })
+            .eq('id', session.id);
+        
+        if (error) throw error;
+        setSession({ ...session, status: newStatus });
+    } catch (err: any) {
+        alert("فشل الطلب: " + err.message);
+    }
+  };
+
+  const handleResumeSession = async () => {
+    if (!session || !session.last_pause_start) return;
+    try {
+        const now = new Date();
+        const pauseStart = new Date(session.last_pause_start);
+        const diffMins = Math.max(0, (now.getTime() - pauseStart.getTime()) / 60000);
+        const newTotalPaused = (Number(session.total_paused_minutes) || 0) + diffMins;
+
+        const { error } = await (supabase as any)
+            .from('workspace_sessions')
+            .update({ 
+                status: 'active',
+                is_paused: false,
+                last_pause_start: null,
+                total_paused_minutes: newTotalPaused
+            })
+            .eq('id', session.id);
+            
+        if (error) throw error;
+        setSession({ 
+            ...session, 
+            status: 'active', 
+            is_paused: false, 
+            last_pause_start: null, 
+            total_paused_minutes: newTotalPaused 
+        });
+    } catch (err: any) {
+        alert("فشل استكمال الجلسة: " + err.message);
+    }
+  };
+
+  const handleRequestCheckout = async () => {
+    if (!session) return;
+    setLoading(true);
+    try {
+        const { error } = await (supabase as any)
+            .from('workspace_sessions')
+            .update({ status: 'checkout_requested' })
+            .eq('id', session.id);
+            
+        if (error) throw error;
+        setSession({ ...session, status: 'checkout_requested' });
+    } catch (err: any) {
+        alert("فشل طلب إنهاء الجلسة: " + err.message);
+    } finally {
+        setLoading(false);
+    }
   };
 
   const fetchProfileData = async () => {
@@ -894,20 +958,71 @@ export const WorkspaceLogin = () => {
                 </div>
               </div>
               
-              <button
-                onClick={() => {
-                  setShowCheckoutConfirm(true);
-                }}
-                disabled={session.status === 'checkout_requested' || loading}
-                className={`w-full flex items-center justify-center gap-3 py-4 md:py-5 rounded-2xl font-black text-lg transition-all active:scale-95 border ${
-                  session.status === 'checkout_requested'
-                    ? 'bg-[#0B0F19] border-white/10 text-slate-500 cursor-not-allowed'
-                    : 'bg-gradient-to-l from-rose-500 to-rose-600 hover:to-rose-500 border-rose-500 text-white shadow-[0_0_20px_rgba(244,63,94,0.3)]'
-                }`}
-              >
-                {loading ? 'جاري المعالجة..' : session.status === 'checkout_requested' ? 'تم طلب إنهاء الجلسة' : 'إنهاء الجلسة والحساب'}
-                {!loading && session.status !== 'checkout_requested' && <LogOut size={22} />}
-              </button>
+              {/* PRIMARY ACTION BUTTONS */}
+              <div className="flex flex-col gap-4">
+                  {session.status === 'active' && (
+                    <div className="grid grid-cols-2 gap-4">
+                        <button
+                            onClick={() => setShowCheckoutConfirm(true)}
+                            className="h-20 bg-rose-600 text-white rounded-[2rem] font-black text-lg flex items-center justify-center gap-3 shadow-xl shadow-rose-900/20 active:scale-95 transition-all group"
+                        >
+                            <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center group-hover:rotate-12 transition-transform">
+                                <LogOut size={22} />
+                            </div>
+                            إنهاء الجلسة
+                        </button>
+                        
+                        <button
+                            onClick={() => handleRequestPause('pause_requested')}
+                            className="h-20 bg-amber-500/10 border border-amber-500/30 text-amber-500 rounded-[2rem] font-black text-lg flex items-center justify-center gap-3 hover:bg-amber-500/20 active:scale-95 transition-all group"
+                        >
+                            <div className="w-10 h-10 bg-amber-500/20 rounded-xl flex items-center justify-center group-hover:-rotate-12 transition-transform">
+                                <Clock size={22} />
+                            </div>
+                            إيقاف العداد
+                        </button>
+                    </div>
+                  )}
+
+                  {session.status === 'pause_requested' && (
+                    <div className="h-24 bg-amber-500/10 border border-amber-500/30 rounded-[2.5rem] p-6 flex items-center justify-between animate-pulse">
+                        <div className="flex items-center gap-4">
+                            <div className="w-12 h-12 bg-amber-500 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-amber-500/30">
+                                <Clock size={24} className="animate-spin" />
+                            </div>
+                            <div className="text-right">
+                                <p className="text-sm font-black text-amber-500">جاري طلب الإيقاف المؤقت...</p>
+                                <p className="text-xs font-bold text-slate-500">في انتظار موافقة المسؤول</p>
+                            </div>
+                        </div>
+                        <button 
+                            onClick={() => handleRequestPause('active')}
+                            className="text-xs font-black text-slate-400 underline underline-offset-4 hover:text-slate-200 decoration-slate-600"
+                        >
+                            إلغاء الطلب
+                        </button>
+                    </div>
+                  )}
+
+                  {session.status === 'paused' && (
+                    <button
+                        onClick={handleResumeSession}
+                        className="h-24 w-full bg-emerald-500 text-white rounded-[2.5rem] font-black text-xl flex items-center justify-center gap-4 shadow-2xl shadow-emerald-900/30 animate-in zoom-in-95 duration-500 hover:bg-emerald-400 group"
+                    >
+                        <div className="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform">
+                            <Plus size={28} />
+                        </div>
+                        استكمال السيشن ▶️
+                    </button>
+                  )}
+
+                  {session.status === 'checkout_requested' && (
+                    <div className="h-24 bg-white/5 border border-white/10 rounded-[2.5rem] p-6 flex items-center justify-center gap-4 text-slate-400 animate-pulse">
+                        <RefreshCw size={24} className="animate-spin" />
+                        <span className="font-black text-lg">جاري مراجعة طلبك..</span>
+                    </div>
+                  )}
+              </div>
 
               {/* Step-by-step confirmation for Checkout */}
               {showCheckoutConfirm && (
