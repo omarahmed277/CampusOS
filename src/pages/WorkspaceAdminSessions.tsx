@@ -25,6 +25,7 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
   const [editingBill, setEditingBill] = useState<any>(null);
   const [manualCode, setManualCode] = useState('');
   const [startingSession, setStartingSession] = useState(false);
+  const [inventory, setInventory] = useState<any[]>([]);
 
   // Helper to format UTC ISO to Cairo Local YYYY-MM-DDTHH:mm
   const toCairoInput = (iso?: string | Date) => {
@@ -48,6 +49,7 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
     if (!branchId) return;
     
     fetchSessions();
+    fetchInventory();
     const interval = setInterval(() => {
       setNow(Date.now());
     }, 60000); // UI update every minute
@@ -106,6 +108,21 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
       console.error(err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchInventory = async () => {
+    if (!branchId) return;
+    try {
+      const { data, error } = await supabase
+        .from('inventory')
+        .select('*')
+        .eq('branch_id', branchId)
+        .gt('stock', 0);
+      if (error) throw error;
+      setInventory(data || []);
+    } catch (err) {
+      console.error('Error fetching inventory:', err);
     }
   };
 
@@ -749,7 +766,38 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
               <div className="space-y-4">
                 <div className="flex justify-between items-center pb-2 border-b border-slate-100">
                   <h3 className="font-black text-slate-700 text-sm">طلبات الكافتريا</h3>
-                  <button onClick={handleAddBillItem} className="text-[10px] font-black bg-indigo-50 text-indigo-600 px-3 py-1 rounded-lg hover:bg-indigo-100 transition-colors">إضافة صنف +</button>
+                  <div className="flex gap-2">
+                    <select 
+                        className="text-[10px] font-black bg-indigo-50 text-indigo-600 px-3 py-1 rounded-lg border-none outline-none cursor-pointer"
+                        value=""
+                        onChange={(e) => {
+                            const prod = inventory.find(i => i.id === e.target.value);
+                            if (prod) {
+                                const newOrders = [...editingBill.orders, { 
+                                    id: prod.id, 
+                                    name: prod.name, 
+                                    price: prod.retail_price, 
+                                    quantity: 1,
+                                    category: prod.category 
+                                }];
+                                const newCateringAmount = newOrders.reduce((sum, o) => sum + (Number(o.price) * (Number(o.quantity) || 1)), 0);
+                                const newTotalAmount = parseFloat((Number(editingBill.workspaceAmount) + newCateringAmount).toFixed(2));
+                                setEditingBill({
+                                    ...editingBill,
+                                    orders: newOrders,
+                                    cateringAmount: newCateringAmount,
+                                    totalAmount: newTotalAmount
+                                });
+                            }
+                        }}
+                    >
+                        <option value="" disabled>+ إضافة صنف من المخزن</option>
+                        {inventory.map((item: any) => (
+                            <option key={item.id} value={item.id}>{item.name} - {item.retail_price} EGP</option>
+                        ))}
+                    </select>
+                    <button onClick={handleAddBillItem} className="text-[10px] font-black bg-slate-50 text-slate-400 px-3 py-1 rounded-lg hover:bg-slate-100 transition-colors">يدوي +</button>
+                  </div>
                 </div>
                 
                 <div className="space-y-3">
