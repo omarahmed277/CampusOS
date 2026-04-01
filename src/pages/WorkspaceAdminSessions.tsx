@@ -303,6 +303,38 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
     }
   };
 
+  const handleUpdateActiveSession = async () => {
+    if (!editingBill) return;
+    setLoading(true);
+    try {
+      const { error: sessionError } = await supabase
+        .from('workspace_sessions')
+        .update({
+          orders: editingBill.orders || [],
+          catering_amount: Number(editingBill.cateringAmount) || 0
+        })
+        .eq('id', editingBill.id);
+
+      if (sessionError) throw sessionError;
+
+      setEditingBill(null);
+      fetchSessions();
+      alert('تم حفظ التعديلات بنجاح');
+      
+      // Update customer interface
+      supabase.channel(`workspace_session_${editingBill.id}`).send({
+        type: 'broadcast',
+        event: 'session_updated',
+        payload: { id: editingBill.id, status: editingBill.status }
+      });
+    } catch (err: any) {
+      console.error('Update Session Error:', err);
+      alert('حدث خطأ أثناء حفظ التعديلات');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleCancelCheckoutRequest = async (sessionId: string) => {
     try {
       const { error } = await supabase
@@ -524,8 +556,8 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
                         <div className="font-black text-slate-900 text-lg">
                           {session.catering_amount || 0} EGP
                         </div>
-                        <div className="text-xs text-slate-400 max-w-[150px] truncate mt-1">
-                          {session.orders?.length > 0 ? session.orders.map((o: any) => `${o.quantity}x ${o.name}`).join('، ') : 'بدون طلبات'}
+                        <div className="text-xs text-slate-400 max-w-[200px] truncate mt-1">
+                          {session.orders?.length > 0 ? session.orders.map((o: any) => `${o.quantity}x ${o.name}${o.ordered_by ? ` (${o.ordered_by})` : ''}`).join('، ') : 'بدون طلبات'}
                         </div>
                       </td>
                       <td className="py-6 px-6">
@@ -804,7 +836,13 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
                   {editingBill.orders.map((o: any, idx: number) => (
                     <div key={idx} className="flex flex-col sm:grid sm:grid-cols-12 gap-4 items-center bg-white p-4 border border-slate-100 rounded-[2rem] group hover:border-indigo-200 transition-all shadow-sm">
                        <div className="w-full sm:col-span-5 text-right font-black text-slate-800">
-                         <p className="text-[9px] text-slate-400 uppercase tracking-widest mb-1">اسم الصنف</p>
+                         <div className="flex justify-between items-center mb-1">
+                            <div className="flex gap-2 items-center">
+                               {o.time && <span className="text-[8px] font-black text-slate-300 uppercase tracking-widest">{new Date(o.time).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}</span>}
+                               {o.ordered_by && <span className="text-[8px] font-black text-indigo-400 bg-indigo-50 px-1.5 py-0.5 rounded uppercase tracking-tighter">{o.ordered_by}</span>}
+                            </div>
+                            <p className="text-[9px] text-slate-400 uppercase tracking-widest">اسم الصنف</p>
+                         </div>
                          <input 
                            className="w-full bg-slate-50 border-none rounded-xl px-4 py-2 outline-none text-sm" 
                            value={o.name} 
@@ -851,10 +889,17 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
                         <span className="text-sm font-black text-slate-300">EGP</span>
                       </div>
                     </div>
-                    <div className="flex flex-col sm:flex-row gap-4 w-full sm:w-auto">
-                      <button onClick={() => setEditingBill(null)} className="w-full sm:w-auto px-8 py-5 rounded-[1.5rem] bg-slate-50 text-slate-500 font-black text-sm hover:bg-slate-100 transition-all active:scale-95">تراجـع</button>
-                      <button onClick={handleAcceptCheckout} className="w-full sm:w-auto px-12 py-5 rounded-[1.5rem] bg-emerald-600 text-white font-black text-sm shadow-2xl shadow-emerald-200 hover:bg-emerald-700 hover:-translate-y-1 transition-all active:scale-95">تأكيد ومحاسبة</button>
-                    </div>
+                     <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+                        <button onClick={() => setEditingBill(null)} className="w-full sm:w-auto px-6 py-4 rounded-[1.2rem] bg-slate-50 text-slate-500 font-black text-xs hover:bg-slate-100 transition-all active:scale-95">تراجـع</button>
+                        <button 
+                          onClick={handleUpdateActiveSession} 
+                          disabled={loading}
+                          className="w-full sm:w-auto px-6 py-4 rounded-[1.2rem] bg-indigo-50 text-indigo-600 font-black text-xs hover:bg-indigo-100 transition-all active:scale-95 border border-indigo-100"
+                        >
+                          حفظ التعديلات (بدون خروج)
+                        </button>
+                        <button onClick={handleAcceptCheckout} className="w-full sm:w-auto px-10 py-5 rounded-[1.5rem] bg-emerald-600 text-white font-black text-sm shadow-2xl shadow-emerald-200 hover:bg-emerald-700 hover:-translate-y-1 transition-all active:scale-95">تأكيد ومحاسبة</button>
+                      </div>
                  </div>
               </div>
             </div>
@@ -929,12 +974,18 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
                   <div className="mt-8 pt-6 border-t border-slate-200">
                     <p className="text-[9px] font-black text-slate-400 mb-4 uppercase tracking-[0.2em] text-center">أصناف الضيافة</p>
                     <div className="space-y-2">
-                      {checkoutBill.orders.map((o: any, idx: number) => (
-                        <div key={idx} className="flex justify-between items-center text-[11px] md:text-sm font-black bg-white rounded-xl p-3 border border-slate-50 shadow-sm">
-                          <span className="text-slate-500">{o.name} <span className="text-[9px] opacity-50 px-2 py-0.5 bg-slate-50 rounded ml-2">x{o.quantity || 1}</span></span>
-                          <span className="text-slate-900 font-mono">{o.price} <span className="text-[8px] opacity-30">EGP</span></span>
-                        </div>
-                      ))}
+                       {checkoutBill.orders.map((o: any, idx: number) => (
+                         <div key={idx} className="flex justify-between items-center text-[11px] md:text-sm font-black bg-white rounded-xl p-3 border border-slate-50 shadow-sm">
+                           <div className="text-right">
+                             <div className="flex items-center gap-2 mb-0.5">
+                                <span className="text-slate-500">{o.name} <span className="text-[9px] opacity-50 px-2 py-0.5 bg-slate-50 rounded">x{o.quantity || 1}</span></span>
+                                {o.ordered_by && <span className="text-[8px] font-black text-indigo-500 bg-indigo-50 px-1.5 py-0.5 rounded uppercase">{o.ordered_by}</span>}
+                             </div>
+                             {o.time && <p className="text-[8px] text-slate-200 font-bold">{new Date(o.time).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}</p>}
+                           </div>
+                           <span className="text-slate-900 font-mono">{o.price} <span className="text-[8px] opacity-30">EGP</span></span>
+                         </div>
+                       ))}
                     </div>
                   </div>
                 )}

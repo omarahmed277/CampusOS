@@ -85,7 +85,15 @@ const SessionRow = ({ session, onEdit, onDelete }: {
                 <ShoppingBag size={14} />
                 <span className="text-sm font-black">{session.catering_amount} EGP</span>
              </div>
-             <p className="text-[9px] text-slate-400 font-black max-w-[120px] truncate">{session.orders?.map((o: any) => o.name).join('، ')}</p>
+             <div className="flex flex-col gap-1">
+                {session.orders?.map((o: any, idx: number) => (
+                   <p key={idx} className="text-[9px] text-slate-400 font-extrabold flex items-center justify-end gap-1.5 min-w-max">
+                      {o.time && <span className="opacity-40 font-mono text-[8px]">{new Date(o.time).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', timeZone: 'Africa/Cairo' })}</span>}
+                      {o.ordered_by && <span className="text-indigo-400">({o.ordered_by})</span>}
+                      {o.name} x{o.quantity}
+                   </p>
+                ))}
+             </div>
           </div>
         ) : (
           <span className="text-slate-200">-</span>
@@ -530,8 +538,17 @@ export const DailyLog = ({ branchId }: { branchId?: string }) => {
 
                   <div className="flex items-center justify-between pt-4 border-t border-slate-50">
                     <div className="text-right">
-                       <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">الكافتيريا</p>
-                       <p className="text-sm font-black text-slate-700">{session.catering_amount} <span className="text-[9px] opacity-40">EGP</span></p>
+                       <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">المشتريات السريعة (Cafeteria)</p>
+                       <div className="flex flex-col gap-0.5 mb-1">
+                          {session.orders?.map((o: any, idx: number) => (
+                             <p key={idx} className="text-[10px] font-bold text-slate-600 flex items-center justify-end gap-1.5">
+                                {o.time && <span className="opacity-40 text-[9px]">{new Date(o.time).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', timeZone: 'Africa/Cairo' })}</span>}
+                                {o.ordered_by && <span className="text-indigo-500/60 lowercase tracking-tighter">@{o.ordered_by}</span>}
+                                <span>{o.name}</span>
+                             </p>
+                          ))}
+                       </div>
+                       <p className="text-sm font-black text-slate-900 border-t border-slate-50 pt-1 mt-1">{session.catering_amount} <span className="text-[9px] opacity-40">EGP</span></p>
                     </div>
                     <div className={`px-4 py-2 rounded-2xl text-right ${session.payment_method === 'subscription' ? 'bg-indigo-50 border border-indigo-100' : 'bg-emerald-50 border border-emerald-100/50'}`}>
                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-0.5">الإجمالي</p>

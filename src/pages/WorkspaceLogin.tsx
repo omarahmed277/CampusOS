@@ -643,9 +643,14 @@ export const WorkspaceLogin = () => {
                                 {o.image_url && (
                                   <img src={o.image_url} className="w-10 h-10 rounded-lg object-cover border border-white/10" alt="" />
                                 )}
-                                <span>- {o.name} <span className="text-[#f78c2a] text-xs font-bold">(x{o.quantity || 1})</span></span>
+                                <div className="text-right">
+                                  <div className="flex items-center gap-2">
+                                     <span className="text-white">- {o.name} <span className="text-[#f78c2a] text-xs font-bold">(x{o.quantity || 1})</span></span>
+                                  </div>
+                                  {o.time && <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">{new Date(o.time).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}</p>}
+                                </div>
                               </div>
-                              <span className="font-bold">{o.price} EGP</span>
+                              <span className="font-bold text-white">{o.price} EGP</span>
                           </div>
                       ))}
                   </div>

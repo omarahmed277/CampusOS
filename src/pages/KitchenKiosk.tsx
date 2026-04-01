@@ -63,6 +63,9 @@ export const KitchenKiosk = () => {
   const [phoneLookup, setPhoneLookup] = useState('');
   const [showCodeReminder, setShowCodeReminder] = useState(false);
   const [rememberedCode, setRememberedCode] = useState('');
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [orderName, setOrderName] = useState('');
 
   useEffect(() => {
     fetchBranchAndProducts();
@@ -263,7 +266,8 @@ export const KitchenKiosk = () => {
         price: e.item.selling_price || e.item.price || 0,
         quantity: e.quantity,
         time: new Date().toISOString(),
-        kiosk: true // Tag as Kiosk purchase
+        ordered_by: orderName.trim() || 'Guest',
+        kiosk: true 
       }))];
       
       const newAmount = currentCateringAmount + subtotal;
@@ -285,10 +289,11 @@ export const KitchenKiosk = () => {
       setOrderBill({
         items: cartEntries,
         total: subtotal,
-        user: (activeSession as any).customers?.full_name || (activeSession as any).user_code
+        user: orderName.trim() || (activeSession as any).customers?.full_name || (activeSession as any).user_code
       });
       setStep('success');
       setCart({});
+      setOrderName('');
       setShowConfirmModal(false);
     } catch (err: any) {
       alert("حدث خطأ أثناء إتمام الطلب: " + err.message);
@@ -304,6 +309,11 @@ export const KitchenKiosk = () => {
     } else if (activeCategory === 'سناكس') {
       filtered = products.filter(p => p.category === 'سناكس' || p.name.includes('شيبس') || p.name.includes('بسكويت') || p.name.includes('كرواسون'));
     }
+    
+    if (searchQuery.trim()) {
+      filtered = filtered.filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase()) || p.category.toLowerCase().includes(searchQuery.toLowerCase()));
+    }
+    
     return filtered;
   };
 
@@ -424,74 +434,205 @@ export const KitchenKiosk = () => {
             </div>
             
             {/* Mobile Shopping Bag Status */}
-            <div className="lg:hidden flex items-center gap-2 bg-indigo-50 px-3 py-1.5 rounded-xl border border-indigo-100">
-               <ShoppingBag size={14} className="text-indigo-600" />
-               <span className="font-black text-indigo-600 text-sm">{Object.values(cart).reduce((sum: number, e: any) => sum + (e.quantity || 0), 0)}</span>
+            <div className="lg:hidden flex items-center gap-2 bg-indigo-50 px-3 py-2 rounded-2xl border border-indigo-100">
+               <ShoppingBag size={18} className="text-indigo-600" />
+               <span className="font-black text-indigo-600 text-lg">{Object.values(cart).reduce((sum: number, e: any) => sum + (e.quantity || 0), 0)}</span>
             </div>
          </div>
 
-         {/* Category Filters */}
-         <div className="flex gap-2 md:gap-3 bg-slate-50 p-1.5 md:p-2 rounded-2xl md:rounded-[2rem] overflow-x-auto no-scrollbar border border-slate-100">
-            {categories.map(cat => (
-              <button
-                key={cat}
-                onClick={() => setActiveCategory(cat)}
-                className={`flex items-center gap-2 px-6 py-3 rounded-2xl font-black text-sm whitespace-nowrap transition-all ${
-                  activeCategory === cat 
-                    ? 'bg-white text-indigo-600 shadow-sm ring-1 ring-slate-200' 
-                    : 'text-slate-400 hover:text-slate-600'
-                }`}
-              >
-                {cat === 'الكل' && <LayoutGrid size={18} />}
-                {cat === 'مشروبات' && <Coffee size={18} />}
-                {cat === 'سناكس' && <Cookie size={18} />}
-                {cat}
-              </button>
-            ))}
+         {/* Search & Category & View Toggles */}
+         <div className="flex flex-col lg:flex-row gap-4 items-center flex-1 lg:justify-end">
+            <div className="relative w-full lg:w-64 group">
+               <div className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-indigo-500 transition-colors">
+                  <Search size={18} />
+               </div>
+               <input 
+                  type="text" 
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="ابحث عن منتج..."
+                  className="w-full h-12 bg-slate-50 border-2 border-slate-100 rounded-2xl pr-12 pl-4 text-sm font-black outline-none focus:border-indigo-400 focus:bg-white transition-all text-right"
+               />
+            </div>
+
+            <div className="flex gap-2 bg-slate-50 p-1.5 rounded-[1.5rem] border border-slate-100 overflow-x-auto no-scrollbar max-w-full">
+               {categories.map(cat => (
+                 <button
+                   key={cat}
+                   onClick={() => setActiveCategory(cat)}
+                   className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-black text-sm whitespace-nowrap transition-all ${
+                     activeCategory === cat 
+                       ? 'bg-white text-indigo-600 shadow-sm ring-1 ring-slate-200' 
+                       : 'text-slate-400 hover:text-slate-600'
+                   }`}
+                 >
+                   {cat === 'الكل' && <LayoutGrid size={16} />}
+                   {cat === 'مشروبات' && <Coffee size={16} />}
+                   {cat === 'سناكس' && <Cookie size={16} />}
+                   {cat}
+                 </button>
+               ))}
+            </div>
+
+            <div className="flex gap-1 bg-slate-100 p-1 rounded-xl shrink-0">
+               <button 
+                  onClick={() => setViewMode('grid')}
+                  className={`p-2 rounded-lg transition-all ${viewMode === 'grid' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400'}`}
+               >
+                  <LayoutGrid size={20} />
+               </button>
+               <button 
+                  onClick={() => setViewMode('list')}
+                  className={`p-2 rounded-lg transition-all ${viewMode === 'list' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400'}`}
+               >
+                  <ShoppingCart size={20} />
+               </button>
+            </div>
          </div>
       </div>
 
       <div className="flex-1 flex overflow-hidden relative">
-        {/* Products Grid */}
+        {/* Products Grid / List */}
         <div className="flex-1 overflow-y-auto p-4 md:p-8 custom-scrollbar pb-32 lg:pb-8">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">
-             {getFilteredProducts().map(product => {
-                const cartQty = cart[product.id]?.quantity || 0;
-                return (
-                  <div key={product.id} className="group relative bg-white border-2 border-transparent rounded-[2.5rem] p-4 hover:border-indigo-400 hover:shadow-2xl hover:shadow-indigo-50/50 transition-all duration-500">
-                     <div className="aspect-[4/5] bg-slate-50 rounded-[2rem] overflow-hidden mb-4 relative ring-1 ring-slate-100">
-                        {product.image_url ? (
-                          <img src={product.image_url} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" alt={product.name} />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center text-slate-200 bg-gradient-to-br from-slate-50 to-slate-100">
-                             {product.category === 'مشروبات' ? <Coffee size={64} strokeWidth={1.5} /> : <Cookie size={64} strokeWidth={1.5} />}
-                          </div>
-                        )}
-                        <div className="absolute inset-0 bg-gradient-to-t from-slate-900/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                        
-                        {cartQty > 0 && (
-                          <div className="absolute top-4 left-4 bg-indigo-600 text-white w-10 h-10 rounded-2xl flex items-center justify-center font-black text-lg shadow-xl ring-4 ring-white animate-in zoom-in bounce-in">
-                            {cartQty}
-                          </div>
-                        )}
-                     </div>
-                     <div className="space-y-1.5 px-2">
-                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 bg-slate-50 px-2 py-0.5 rounded-full">{product.category}</span>
-                        <h4 className="font-black text-slate-900 text-lg leading-tight line-clamp-1">{product.name}</h4>
-                        <div className="flex items-center justify-between">
-                           <p className="text-emerald-600 font-extrabold text-xl">{product.selling_price || product.price} <span className="text-xs">EGP</span></p>
+           {viewMode === 'grid' ? (
+             <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 md:gap-8">
+                {getFilteredProducts().map(product => {
+                   const cartQty = cart[product.id]?.quantity || 0;
+                   const isOutOfStock = product.stock <= 0;
+                   return (
+                     <div key={product.id} className={`group relative bg-white border border-slate-100/50 rounded-[2.5rem] p-4 transition-all duration-700 shadow-sm hover:shadow-2xl hover:shadow-indigo-500/10 hover:-translate-y-2 ${isOutOfStock ? 'opacity-60 saturate-50' : 'hover:border-indigo-400'}`}>
+                        <div className="aspect-square bg-slate-50/50 rounded-[2.2rem] overflow-hidden mb-5 relative group-hover:shadow-lg transition-all duration-700">
+                           {product.image_url ? (
+                             <img src={product.image_url} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-1000 ease-out" alt={product.name} />
+                           ) : (
+                             <div className="w-full h-full flex items-center justify-center text-slate-200 bg-gradient-to-br from-slate-50 to-slate-100">
+                                {product.category === 'مشروبات' ? <Coffee size={64} strokeWidth={1} /> : <Cookie size={64} strokeWidth={1} />}
+                             </div>
+                           )}
+                           <div className="absolute inset-0 bg-gradient-to-t from-black/20 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-all duration-700" />
+                           
+                           {cartQty > 0 && (
+                             <div className="absolute top-4 left-4 bg-indigo-600 text-white min-w-[2.5rem] h-10 px-3 rounded-2xl flex items-center justify-center font-black text-lg shadow-xl ring-4 ring-white animate-in zoom-in-50 duration-300">
+                               {cartQty}
+                             </div>
+                           )}
+
+                           {isOutOfStock && (
+                             <div className="absolute top-4 right-4 z-10">
+                                <span className="px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest shadow-sm backdrop-blur-md bg-rose-500 text-white">
+                                   Sold Out
+                                </span>
+                             </div>
+                           )}
+                        </div>
+
+                        <div className="space-y-4 px-2">
+                           <div>
+                              <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400 mb-1 opacity-60">{product.category}</p>
+                              <h4 className="font-black text-slate-900 text-sm md:text-base leading-tight line-clamp-2 min-h-[2.5rem] group-hover:text-indigo-600 transition-colors uppercase tracking-tight">{product.name}</h4>
+                           </div>
+                           
+                           <div className="flex items-center justify-between pt-4 border-t border-slate-50">
+                              <div className="flex flex-col">
+                                 <span className="text-xl font-black text-slate-900 flex items-baseline gap-1">
+                                   {product.selling_price || product.price}
+                                   <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Egp</span>
+                                 </span>
+                              </div>
+
+                              <div className="flex gap-2">
+                                 <button 
+                                   onClick={() => !isOutOfStock && addToCart(product)}
+                                   disabled={isOutOfStock}
+                                   className={`w-12 h-12 rounded-2xl font-black transition-all flex items-center justify-center shadow-lg active:scale-75 ${
+                                     isOutOfStock 
+                                       ? 'bg-slate-100 text-slate-300 cursor-not-allowed shadow-none' 
+                                       : 'bg-indigo-600 text-white hover:bg-slate-900 shadow-indigo-100'
+                                   }`}
+                                 >
+                                   <Plus size={22} strokeWidth={3} className="group-hover:rotate-90 transition-transform duration-500" />
+                                 </button>
+                              </div>
+                           </div>
                         </div>
                      </div>
-                     <button 
-                       onClick={() => addToCart(product)}
-                       className="w-full mt-5 h-12 md:h-14 bg-slate-900 text-white rounded-2xl font-black hover:bg-indigo-600 hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-2 shadow-lg shadow-slate-100"
-                     >
-                       <Plus size={18} className="md:w-5 md:h-5" strokeWidth={3} /> إضافة
-                     </button>
-                  </div>
-                );
-             })}
-          </div>
+                   );
+                })}
+             </div>
+           ) : (
+             <div className="space-y-4 max-w-5xl mx-auto">
+                 {getFilteredProducts().map(product => {
+                    const cartQty = cart[product.id]?.quantity || 0;
+                    const isOutOfStock = product.stock <= 0;
+                    return (
+                       <div key={product.id} className={`bg-white p-3 md:p-5 rounded-[2rem] border border-slate-100 transition-all hover:border-indigo-400 hover:shadow-xl hover:shadow-indigo-500/5 flex items-center justify-between shadow-sm group ${isOutOfStock ? 'opacity-50 saturate-50' : ''}`}>
+                          <div className="flex items-center gap-4 md:gap-8 flex-1 min-w-0">
+                             <div className="w-16 h-16 md:w-24 md:h-24 bg-slate-50 rounded-2xl md:rounded-[2.2rem] overflow-hidden shrink-0 ring-1 ring-slate-100 relative">
+                                {product.image_url ? (
+                                  <img src={product.image_url} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" alt={product.name} />
+                                ) : (
+                                  <div className="w-full h-full flex items-center justify-center text-slate-200">
+                                     <Package size={32} />
+                                  </div>
+                                )}
+                                {isOutOfStock && <div className="absolute inset-0 bg-black/40 flex items-center justify-center text-[10px] text-white font-black">Sold Out</div>}
+                             </div>
+                             <div className="flex-1 min-w-0 text-right">
+                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">{product.category}</p>
+                                <h4 className="font-black text-slate-900 text-base md:text-xl leading-tight truncate group-hover:text-indigo-600 transition-colors uppercase tracking-tight">{product.name}</h4>
+                                <div className="flex items-center justify-end gap-3 mt-2">
+                                   <p className="text-indigo-600 font-black text-lg md:text-2xl">{product.selling_price || product.price} <span className="text-xs opacity-40">EGP</span></p>
+                                </div>
+                             </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 md:gap-4 ml-4 md:ml-8 border-r border-slate-100 pr-4 md:pr-8">
+                             {cartQty > 0 && (
+                                <div className="flex items-center bg-indigo-50 rounded-2xl p-1 gap-4 animate-in slide-in-from-left-4 duration-300">
+                                   <button 
+                                     onClick={() => removeFromCart(product.id)}
+                                     className="w-10 h-10 md:w-12 md:h-12 rounded-xl bg-white shadow-sm flex items-center justify-center text-indigo-600 hover:bg-rose-500 hover:text-white transition-all active:scale-75"
+                                   >
+                                     <Minus size={18} />
+                                   </button>
+                                   <span className="font-black text-indigo-600 min-w-[24px] text-center text-lg">{cartQty}</span>
+                                   <button 
+                                     onClick={() => addToCart(product)} 
+                                     disabled={isOutOfStock}
+                                     className="w-10 h-10 md:w-12 md:h-12 rounded-xl bg-white shadow-sm flex items-center justify-center text-indigo-600 hover:bg-indigo-600 hover:text-white transition-all active:scale-75"
+                                   >
+                                     <Plus size={18} />
+                                   </button>
+                                </div>
+                             )}
+                             {cartQty === 0 && (
+                                <button 
+                                  onClick={() => !isOutOfStock && addToCart(product)}
+                                  disabled={isOutOfStock}
+                                  className={`w-12 h-12 md:w-16 md:h-16 rounded-2xl md:rounded-[1.5rem] flex items-center justify-center shadow-lg transition-all active:scale-75 ${
+                                    isOutOfStock 
+                                      ? 'bg-slate-100 text-slate-300 cursor-not-allowed shadow-none' 
+                                      : 'bg-slate-900 text-white hover:bg-indigo-600 shadow-slate-200'
+                                  }`}
+                                >
+                                   <Plus size={28} className={product.stock > 0 ? "group-hover:rotate-90 transition-transform duration-500" : ""} />
+                                </button>
+                             )}
+                          </div>
+                       </div>
+                    );
+                 })}
+              </div>
+           )}
+           {getFilteredProducts().length === 0 && (
+             <div className="h-full flex flex-col items-center justify-center gap-6 opacity-30 italic py-20">
+                <Search size={80} strokeWidth={1} />
+                <div className="text-center">
+                   <p className="font-black text-2xl text-slate-500">لم نجد ما تبحث عنه</p>
+                   <p className="text-sm font-bold mt-1 uppercase tracking-widest">Try different search or category</p>
+                </div>
+             </div>
+           )}
         </div>
 
         {/* Floating Mobile Checkout Bar */}
@@ -564,21 +705,45 @@ export const KitchenKiosk = () => {
              )}
           </div>
 
-          <div className="p-8 bg-white border-t border-slate-100 space-y-6 shrink-0">
-             <div className="flex justify-between items-center">
-                <span className="font-bold text-slate-400 uppercase tracking-widest text-xs">الإجمالي النهائي</span>
-                <span className="text-3xl font-black text-slate-900">{Object.values(cart).reduce((sum: number, e: any) => sum + (((e.item?.selling_price || e.item?.price || 0) * e.quantity) || 0), 0)} EGP</span>
+          <div className="p-8 bg-white border-t border-slate-100 shrink-0 hidden lg:block">
+             <div className="bg-indigo-50 border border-indigo-100 rounded-3xl p-6 text-center">
+                <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1">إجمالي السلة</p>
+                <p className="text-2xl font-black text-indigo-900">{Object.values(cart).reduce((sum: number, e: any) => sum + (((e.item?.selling_price || e.item?.price || 0) * e.quantity) || 0), 0)} EGP</p>
              </div>
-             <button 
-               onClick={() => setShowConfirmModal(true)}
-               disabled={Object.keys(cart).length === 0 || processingOrder}
-               className="w-full h-20 bg-indigo-600 text-white rounded-[2.5rem] font-black text-xl hover:bg-indigo-700 active:scale-95 transition-all shadow-2xl shadow-indigo-200 disabled:opacity-50 disabled:grayscale flex items-center justify-center gap-4"
-             >
-               مراجعة وتأكيد الطلب <ArrowRight size={24} />
-             </button>
           </div>
         </div>
       </div>
+
+      {/* Floating Desktop Checkout Bar (Bottom Left) */}
+      {Object.keys(cart).length > 0 && (
+        <div className="fixed bottom-12 left-12 z-50 hidden lg:block animate-in slide-in-from-left-12 duration-700">
+           <div className="bg-slate-900/40 backdrop-blur-3xl border border-white/20 rounded-[3rem] p-4 pr-10 shadow-[0_30px_100px_rgba(0,0,0,0.3)] flex items-center gap-10 ring-1 ring-black/5 group hover:bg-slate-900/60 transition-all duration-500">
+              <div className="flex items-center gap-6">
+                 <div className="w-16 h-16 bg-gradient-to-br from-indigo-500 to-indigo-700 rounded-[2rem] flex items-center justify-center text-white relative shadow-2xl group-hover:scale-110 transition-transform">
+                    <ShoppingBag size={28} />
+                    <span className="absolute -top-3 -right-3 bg-rose-500 text-white text-[10px] font-black w-8 h-8 rounded-2xl flex items-center justify-center ring-4 ring-slate-900/20">
+                      {Object.values(cart).reduce((sum: number, e: any) => sum + (e.quantity || 0), 0)}
+                    </span>
+                 </div>
+                 <div className="text-left border-l border-white/10 pl-6">
+                    <p className="text-white/40 font-black text-[9px] uppercase tracking-[0.3em] mb-1">Grand Total</p>
+                    <p className="text-white font-black text-3xl tracking-tight">
+                       {Object.values(cart).reduce((sum: number, e: any) => sum + (((e.item?.selling_price || e.item?.price || 0) * e.quantity) || 0), 0)}
+                       <span className="text-sm opacity-40 ml-2">EGP</span>
+                    </p>
+                 </div>
+              </div>
+              <button 
+                onClick={() => setShowConfirmModal(true)}
+                className="h-20 px-12 bg-white text-slate-900 rounded-[2rem] font-black text-xl hover:bg-indigo-400 hover:text-white active:scale-95 transition-all shadow-2xl flex items-center gap-4 group/btn"
+              >
+                تأكيد الشراء
+                <ArrowRight size={24} className="group-hover/btn:translate-x-2 transition-transform" />
+              </button>
+           </div>
+        </div>
+      )}
+
 
       {/* Code Reminder Popup */}
       {showCodeReminder && (
@@ -612,32 +777,42 @@ export const KitchenKiosk = () => {
         title="تأكيد عملية الشراء"
       >
         <div className="space-y-8 p-2">
-           <div className="bg-indigo-50/50 rounded-[2.5rem] p-8 border-2 border-indigo-100 space-y-6">
-              <div className="flex flex-col items-center gap-2 text-center">
-                 <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center text-indigo-600 shadow-xl mb-2">
-                    <CreditCard size={32} />
-                 </div>
-                 <h3 className="text-2xl font-black text-slate-900">هل تود تأكيد طلبك؟</h3>
-                 <p className="text-slate-500 font-bold">يرجى التأكد من المنتجات المضافة قبل المتابعة</p>
-              </div>
+               <div className="bg-indigo-50/50 rounded-[2.5rem] p-8 border-2 border-indigo-100 space-y-6">
+                  <div className="flex flex-col items-center gap-2 text-center">
+                     <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center text-indigo-600 shadow-xl mb-2">
+                        <CreditCard size={32} />
+                     </div>
+                     <h3 className="text-2xl font-black text-slate-900">أدخل اسمك لتأكيد الطلب</h3>
+                     <p className="text-slate-500 font-bold">هذا الاسم سيظهر للـ Admin مع طلبك</p>
+                  </div>
 
-              <div className="space-y-3">
-                 {Object.values(cart).map((entry: any) => (
-                   <div key={entry.item.id} className="flex justify-between items-center bg-white p-4 rounded-2xl border border-slate-100">
-                      <div className="flex items-center gap-3">
-                         <span className="bg-indigo-600 text-white w-7 h-7 rounded-lg flex items-center justify-center font-black text-xs">{entry.quantity}</span>
-                         <span className="font-black text-slate-700">{entry.item.name}</span>
-                      </div>
-                      <span className="font-bold text-slate-500">{(entry.item.selling_price || entry.item.price || 0) * entry.quantity} EGP</span>
-                   </div>
-                 ))}
-              </div>
+                  <div className="space-y-4">
+                     <input 
+                        type="text" 
+                        value={orderName}
+                        onChange={(e) => setOrderName(e.target.value)}
+                        placeholder="اكتب اسمك هنا..."
+                        className="w-full h-16 bg-white border-2 border-slate-100 rounded-2xl px-6 text-center font-black text-xl text-slate-900 outline-none focus:border-indigo-500 transition-all shadow-inner"
+                     />
+                  </div>
 
-              <div className="pt-6 border-t-2 border-dashed border-indigo-200 flex justify-between items-center font-black">
-                 <span className="text-slate-500 uppercase tracking-widest text-xs md:text-sm">الإجمالي المطلوب</span>
-                 <span className="text-2xl md:text-3xl text-indigo-600">{Object.values(cart).reduce((sum: number, e: any) => sum + (((e.item?.selling_price || e.item?.price || 0) * e.quantity) || 0), 0)} EGP</span>
-              </div>
-           </div>
+                  <div className="space-y-3">
+                     {Object.values(cart).map((entry: any) => (
+                       <div key={entry.item.id} className="flex justify-between items-center bg-white p-4 rounded-2xl border border-slate-100">
+                          <div className="flex items-center gap-3">
+                             <span className="bg-indigo-600 text-white w-7 h-7 rounded-lg flex items-center justify-center font-black text-xs">{entry.quantity}</span>
+                             <span className="font-black text-slate-700">{entry.item.name}</span>
+                          </div>
+                          <span className="font-bold text-slate-500">{(entry.item.selling_price || entry.item.price || 0) * entry.quantity} EGP</span>
+                       </div>
+                     ))}
+                  </div>
+
+                  <div className="pt-6 border-t-2 border-dashed border-indigo-200 flex justify-between items-center font-black">
+                     <span className="text-slate-500 uppercase tracking-widest text-xs md:text-sm">الإجمالي المطلوب</span>
+                     <span className="text-2xl md:text-3xl text-indigo-600">{Object.values(cart).reduce((sum: number, e: any) => sum + (((e.item?.selling_price || e.item?.price || 0) * e.quantity) || 0), 0)} EGP</span>
+                  </div>
+               </div>
 
            <div className="flex flex-col sm:grid sm:grid-cols-2 gap-4">
               <button 
