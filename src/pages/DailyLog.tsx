@@ -23,6 +23,104 @@ interface Session {
   };
 }
 
+// Helper Component for Desktop Table Row
+const SessionRow = ({ session, onEdit, onDelete }: { 
+  key?: string, 
+  session: Session, 
+  onEdit: (s: Session) => void, 
+  onDelete: (id: string) => void | Promise<void> 
+}) => {
+  const activeSub = session.customers?.subscriptions?.find((s: any) => 
+    s.status === 'Active' && 
+    new Date(s.end_date) >= new Date() &&
+    s.used_hours < s.total_hours
+  );
+
+  return (
+    <tr className="hover:bg-slate-50/40 transition-all font-bold group duration-500">
+      <td className="px-10 py-8">
+         <div className="flex flex-row-reverse items-start gap-4 text-right">
+            <div className="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-400 lg:group-hover:bg-indigo-50 lg:group-hover:text-indigo-500 transition-all duration-500">
+               <User size={20} />
+            </div>
+            <div className="text-right">
+               <p className="text-slate-800 font-black text-base lg:group-hover:text-indigo-600 transition-colors">
+                  {session.customers?.full_name || (session.user_code.startsWith('NA') ? `زائر (${session.user_code})` : 'مستخدم')}
+               </p>
+               <div className="flex flex-row-reverse items-center justify-start gap-3 mt-2">
+                  <span className="text-[10px] text-indigo-500 font-black bg-indigo-50 px-2 py-0.5 rounded-lg">{session.user_code}</span>
+                  {activeSub && (
+                     <div className="flex flex-row-reverse items-center gap-2 px-3 py-1 bg-emerald-50 text-emerald-600 rounded-xl">
+                        <Sparkles size={10} className="animate-pulse" />
+                        <span className="text-[9px] font-black uppercase tracking-tighter">Subscribed</span>
+                     </div>
+                  )}
+               </div>
+            </div>
+         </div>
+      </td>
+
+      <td className="px-6 py-8">
+        <div className="flex items-center justify-center gap-3">
+          <div className="bg-slate-50 border border-slate-100 px-4 py-2 rounded-2xl shadow-sm text-center">
+            <span className="text-[8px] text-slate-400 uppercase tracking-widest block font-black mb-1">IN</span>
+            <span className="text-slate-700 font-mono text-xs font-black">
+              {new Date(session.start_time).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', timeZone: 'Africa/Cairo' })}
+            </span>
+          </div>
+          <ChevronLeft size={16} className="text-slate-200" />
+          <div className={`px-4 py-2 rounded-2xl border text-center ${session.end_time ? 'bg-slate-50 border-slate-100' : 'bg-emerald-50 border-emerald-100'}`}>
+            <span className={`text-[8px] uppercase tracking-widest block font-black mb-1 ${session.end_time ? 'text-slate-400' : 'text-emerald-500'}`}>{session.end_time ? 'OUT' : 'NOW'}</span>
+            <span className={`font-mono text-xs font-black ${session.end_time ? 'text-slate-700' : 'text-emerald-600'}`}>
+              {session.end_time ? new Date(session.end_time).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', timeZone: 'Africa/Cairo' }) : 'ACTIVE'}
+            </span>
+          </div>
+        </div>
+      </td>
+
+      <td className="px-6 py-8 text-center">
+        {session.catering_amount > 0 ? (
+          <div className="bg-amber-50/50 border border-amber-100 inline-block px-5 py-3 rounded-[1.5rem] lg:group-hover:bg-amber-50 transition-all text-right">
+             <div className="flex items-center gap-2 justify-center text-amber-600 mb-1">
+                <ShoppingBag size={14} />
+                <span className="text-sm font-black">{session.catering_amount} EGP</span>
+             </div>
+             <p className="text-[9px] text-slate-400 font-black max-w-[120px] truncate">{session.orders?.map((o: any) => o.name).join('، ')}</p>
+          </div>
+        ) : (
+          <span className="text-slate-200">-</span>
+        )}
+      </td>
+
+      <td className="px-6 py-8 text-center text-right">
+         <div className={`p-4 rounded-[2rem] inline-block min-w-[120px] ${session.payment_method === 'subscription' ? 'bg-indigo-50 border border-indigo-100' : 'bg-emerald-50 border border-emerald-100'}`}>
+            <p className={`text-lg font-black ${session.payment_method === 'subscription' ? 'text-indigo-600' : 'text-emerald-600'}`}>
+               {session.total_amount ? `${session.total_amount}` : '0'} <span className="text-[10px] opacity-40">EGP</span>
+            </p>
+            {session.payment_method === 'subscription' && <span className="block text-[8px] font-black text-indigo-400 uppercase tracking-widest mt-1">Package</span>}
+         </div>
+      </td>
+
+      <td className="px-10 py-8">
+         <div className="flex items-center justify-center gap-2 lg:opacity-0 lg:group-hover:opacity-100 transition-all duration-300">
+            <button 
+              onClick={() => onEdit(session)}
+              className="p-3.5 bg-white text-indigo-400 rounded-2xl hover:bg-indigo-600 hover:text-white transition-all shadow-sm border border-slate-100 active:scale-90"
+            >
+              <Receipt size={18} />
+            </button>
+            <button 
+              onClick={() => onDelete(session.id)}
+              className="p-3.5 bg-white text-rose-300 rounded-2xl hover:bg-rose-600 hover:text-white transition-all shadow-sm border border-slate-100 active:scale-90"
+            >
+              <Trash2 size={18} />
+            </button>
+         </div>
+      </td>
+    </tr>
+  );
+};
+
 export const DailyLog = ({ branchId }: { branchId?: string }) => {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [subscriptions, setSubscriptions] = useState<any[]>([]);
@@ -41,10 +139,11 @@ export const DailyLog = ({ branchId }: { branchId?: string }) => {
   const [editOrders, setEditOrders] = useState<any[]>([]);
 
   // Helper to format UTC ISO to Cairo Local YYYY-MM-DDTHH:mm
-  const toCairoInput = (iso?: string) => {
+  const toCairoInput = (iso?: string | Date) => {
     if (!iso) return '';
     try {
-      return new Date(iso).toLocaleString('sv-SE', { timeZone: 'Africa/Cairo' }).replace(' ', 'T').slice(0, 16);
+      const date = typeof iso === 'string' ? new Date(iso) : iso;
+      return date.toLocaleString('sv-SE', { timeZone: 'Africa/Cairo' }).replace(' ', 'T').slice(0, 16);
     } catch (e) {
       return '';
     }
@@ -53,12 +152,7 @@ export const DailyLog = ({ branchId }: { branchId?: string }) => {
   // Helper to convert local input back to UTC ISO
   const fromCairoInput = (localStr: string) => {
     if (!localStr) return null;
-    // Parse the input date as if it's in the Africa/Cairo timezone
-    const date = new Date(localStr);
-    // This part is tricky because JS Date parsing of "YYYY-MM-DDTHH:mm" is local.
-    // If the browser is in Cairo, it works. If not, we have to adjust.
-    // Given the user metadata is +02:00, we proceed with standard parsing.
-    return date.toISOString();
+    return new Date(localStr).toISOString();
   };
 
   useEffect(() => {
@@ -243,101 +337,96 @@ export const DailyLog = ({ branchId }: { branchId?: string }) => {
       </div>
 
       <div className="flex flex-col lg:flex-row gap-8 justify-between items-end lg:items-center">
-        <div>
-           <div className="flex items-center gap-3 justify-end mb-2">
-              <Sparkles className="text-indigo-500" size={24} />
-              <h1 className="text-4xl font-black text-slate-800 tracking-tight">سجل الحضور الذكي</h1>
-           </div>
-          <p className="text-slate-400 font-bold text-sm uppercase tracking-widest mr-10 opacity-70">Daily Activity Intelligence</p>
-        </div>
+      
 
         {/* Date Navigator */}
-        <div className="bg-white/50 backdrop-blur-md p-2 rounded-[2rem] border border-white shadow-sm flex items-center gap-3">
+        <div className="w-full lg:w-auto bg-white/50 backdrop-blur-md p-2 rounded-[2rem] border border-white shadow-sm flex items-center justify-between lg:justify-end gap-2 md:gap-3">
           <button 
             onClick={() => navigateDate(1)}
-            className="p-4 hover:bg-white rounded-2xl transition-all hover:shadow-sm text-slate-400 hover:text-indigo-600 active:scale-90"
+            className="p-3 md:p-4 hover:bg-white rounded-2xl transition-all hover:shadow-sm text-slate-400 hover:text-indigo-600 active:scale-90"
           >
-            <ChevronRight size={24} />
+            <ChevronRight size={20} className="md:w-6 md:h-6" />
           </button>
           
-          <div className="flex flex-col items-center px-4 min-w-[180px]">
+          <div className="flex flex-col items-center px-2 md:px-4 flex-1 lg:min-w-[180px]">
             <input 
               type="date"
               value={selectedDate}
               onChange={(e) => setSelectedDate(e.target.value)}
-              className="bg-transparent text-xl font-black text-slate-800 border-none outline-none text-center cursor-pointer hover:text-indigo-600 transition-colors"
+              className="bg-transparent text-sm md:text-xl font-black text-slate-800 border-none outline-none text-center cursor-pointer hover:text-indigo-600 transition-colors"
             />
-            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+            <span className="text-[9px] md:text-[10px] font-black text-slate-400 uppercase tracking-widest">
               {new Date(selectedDate).toLocaleDateString('ar-EG', { weekday: 'long' })}
             </span>
           </div>
 
           <button 
             onClick={() => navigateDate(-1)}
-            className="p-4 hover:bg-white rounded-2xl transition-all hover:shadow-sm text-slate-400 hover:text-indigo-600 active:scale-90"
+            className="p-3 md:p-4 hover:bg-white rounded-2xl transition-all hover:shadow-sm text-slate-400 hover:text-indigo-600 active:scale-90"
           >
-            <ChevronLeft size={24} />
+            <ChevronLeft size={20} className="md:w-6 md:h-6" />
           </button>
         </div>
 
         <button 
           onClick={fetchLogData}
-          className="bg-white text-indigo-600 px-8 py-5 rounded-[1.5rem] font-black shadow-sm border border-indigo-100 hover:bg-indigo-50 transition-all flex items-center gap-3 active:scale-95 h-full"
+          className="w-full lg:w-auto bg-white text-indigo-600 px-6 py-4 md:px-8 md:py-5 rounded-[1.5rem] font-black shadow-sm border border-indigo-100 hover:bg-indigo-50 transition-all flex items-center justify-center gap-3 active:scale-95"
         >
-          <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
-          <span>تحديث</span>
+          <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
+          <span className="text-sm md:text-base">تحديث</span>
         </button>
       </div>
 
       {/* Stats - Premium Design */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        <div className="bg-indigo-50/50 backdrop-blur-md p-10 rounded-[3rem] border border-indigo-100/50 shadow-sm relative group overflow-hidden">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+        <div className="bg-indigo-50/50 backdrop-blur-md p-6 lg:p-10 rounded-[2rem] lg:rounded-[3rem] border border-indigo-100/50 shadow-sm relative group overflow-hidden">
            <div className="absolute -top-10 -right-10 w-32 h-32 bg-white/40 rounded-full blur-2xl group-hover:scale-150 transition-transform duration-1000" />
-           <p className="text-indigo-400 font-black text-[10px] uppercase tracking-widest text-right mb-4">زوار اليوم</p>
-           <div className="flex items-center gap-3 justify-end">
-              <div className="p-2 bg-white text-indigo-600 rounded-xl shadow-sm"><User size={20}/></div>
-              <h3 className="text-4xl font-black text-indigo-900 tracking-tighter">{sessions.length}</h3>
+           <p className="text-indigo-400 font-black text-[9px] lg:text-[10px] uppercase tracking-widest text-right mb-2 lg:mb-4">زوار اليوم</p>
+           <div className="flex items-center gap-2 lg:gap-3 justify-end">
+              <div className="p-1.5 lg:p-2 bg-white text-indigo-600 rounded-lg lg:rounded-xl shadow-sm"><User size={16} className="lg:w-5 lg:h-5"/></div>
+              <h3 className="text-2xl lg:text-4xl font-black text-indigo-900 tracking-tighter">{sessions.length}</h3>
            </div>
         </div>
 
-        <div className="bg-slate-900 p-10 rounded-[3rem] text-white shadow-2xl relative group overflow-hidden">
+        <div className="bg-slate-900 p-6 lg:p-10 rounded-[2rem] lg:rounded-[3rem] text-white shadow-2xl relative group overflow-hidden">
            <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full blur-2xl group-hover:scale-150 transition-transform duration-1000" />
-           <p className="text-indigo-300 font-black text-[10px] uppercase tracking-widest text-right mb-4">الجلسات النشطة</p>
-           <div className="flex items-center gap-3 justify-end">
-              <h3 className="text-4xl font-black tracking-tighter">{activeCount}</h3>
-              <div className="w-3 h-3 bg-emerald-400 rounded-full animate-pulse shadow-[0_0_10px_#34d399]" />
+           <p className="text-indigo-300 font-black text-[9px] lg:text-[10px] uppercase tracking-widest text-right mb-2 lg:mb-4">الجلسات النشطة</p>
+           <div className="flex items-center gap-2 lg:gap-3 justify-end">
+              <h3 className="text-2xl lg:text-4xl font-black tracking-tighter">{activeCount}</h3>
+              <div className="w-2 h-2 lg:w-3 lg:h-3 bg-emerald-400 rounded-full animate-pulse shadow-[0_0_10px_#34d399]" />
            </div>
         </div>
 
-        <div className="bg-emerald-600 p-10 rounded-[3rem] text-white shadow-xl relative group overflow-hidden">
+        <div className="bg-emerald-600 p-6 lg:p-10 rounded-[2rem] lg:rounded-[3rem] text-white shadow-xl relative group overflow-hidden">
            <div className="absolute bottom-0 right-0 w-32 h-32 bg-white/10 rounded-full blur-2xl" />
            <div className="flex flex-row-reverse justify-between items-start">
               <div>
-                 <p className="text-emerald-100 font-black text-[10px] uppercase tracking-widest text-right mb-4">Cash In</p>
-                 <h3 className="text-4xl font-black tracking-tight">{totalCashIn.toLocaleString()}</h3>
+                 <p className="text-emerald-100 font-black text-[9px] lg:text-[10px] uppercase tracking-widest text-right mb-2 lg:mb-4">Cash In</p>
+                 <h3 className="text-2xl lg:text-4xl font-black tracking-tight">{totalCashIn.toLocaleString()}</h3>
               </div>
-              <ArrowUpRight className="text-emerald-100 opacity-30" size={40} />
+              <ArrowUpRight className="text-emerald-100 opacity-30 lg:w-10 lg:h-10" size={24} />
            </div>
         </div>
 
-        <div className="bg-white p-10 rounded-[3rem] border border-rose-100 shadow-sm relative group overflow-hidden">
+        <div className="bg-white p-6 lg:p-10 rounded-[2rem] lg:rounded-[3rem] border border-rose-100 shadow-sm relative group overflow-hidden">
            <div className="absolute top-1/2 left-0 w-32 h-32 bg-rose-50/50 rounded-full blur-3xl" />
            <div className="flex flex-row-reverse justify-between items-start">
               <div>
-                 <p className="text-rose-400 font-black text-[10px] uppercase tracking-widest text-right mb-4">Cash Out</p>
-                 <h3 className="text-4xl font-black text-rose-600 tracking-tight">{totalCashOut.toLocaleString()}</h3>
+                 <p className="text-rose-400 font-black text-[9px] lg:text-[10px] uppercase tracking-widest text-right mb-2 lg:mb-4">Cash Out</p>
+                 <h3 className="text-2xl lg:text-4xl font-black text-rose-600 tracking-tight">{totalCashOut.toLocaleString()}</h3>
               </div>
-              <ArrowDownRight className="text-rose-100" size={40} />
+              <ArrowDownRight className="text-rose-100 lg:w-10 lg:h-10" size={24} />
            </div>
         </div>
       </div>
 
-      <div className="bg-white/70 backdrop-blur-xl rounded-[3.5rem] border border-white shadow-[0_20px_50px_rgba(0,0,0,0.03)] overflow-hidden">
-        <div className="p-10 border-b border-slate-100 bg-slate-50/20">
-          <h3 className="text-2xl font-black text-slate-800 tracking-tight">تحليل تفاصيل الحضور</h3>
+      <div className="bg-white/70 backdrop-blur-xl rounded-[2.5rem] lg:rounded-[3.5rem] border border-white shadow-[0_20px_50px_rgba(0,0,0,0.03)] overflow-hidden">
+        <div className="p-6 lg:p-10 border-b border-slate-100 bg-slate-50/20">
+          <h3 className="text-xl lg:text-2xl font-black text-slate-800 tracking-tight text-center lg:text-right">تحليل تفاصيل الحضور</h3>
         </div>
 
-        <div className="overflow-x-auto">
+        {/* Desktop View */}
+        <div className="hidden lg:block overflow-x-auto">
           <table className="w-full border-separate border-spacing-0">
             <thead>
               <tr className="bg-slate-50/30 text-slate-400 text-[10px] font-black uppercase tracking-[0.2em]">
@@ -349,118 +438,117 @@ export const DailyLog = ({ branchId }: { branchId?: string }) => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100/50 font-bold">
-              {sessions.map(session => {
-                const activeSub = session.customers?.subscriptions?.find((s: any) => 
-                  s.status === 'Active' && 
-                  new Date(s.end_date) >= new Date() &&
-                  s.used_hours < s.total_hours
-                );
-
-                return (
-                  <tr key={session.id} className="hover:bg-slate-50/40 transition-all font-bold group duration-500">
-                    <td className="px-10 py-8">
-                       <div className="flex flex-row-reverse items-start gap-4">
-                          <div className="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-400 group-hover:bg-indigo-50 group-hover:text-indigo-500 transition-all duration-500">
-                             <User size={20} />
-                          </div>
-                          <div className="text-right">
-                             <p className="text-slate-800 font-black text-base group-hover:text-indigo-600 transition-colors">
-                                {session.customers?.full_name || (session.user_code.startsWith('NA') ? `زائر (${session.user_code})` : 'مستخدم')}
-                             </p>
-                             <div className="flex flex-row-reverse items-center gap-3 mt-2">
-                                <span className="text-[10px] text-indigo-500 font-black bg-indigo-50 px-2 py-0.5 rounded-lg">{session.user_code}</span>
-                                {activeSub && (
-                                   <div className="flex flex-row-reverse items-center gap-2 px-3 py-1 bg-emerald-50 text-emerald-600 rounded-xl">
-                                      <Sparkles size={10} className="animate-pulse" />
-                                      <span className="text-[9px] font-black uppercase tracking-tighter">Subscribed Member</span>
-                                   </div>
-                                )}
-                             </div>
-                             {activeSub && (
-                               <div className="mt-3 space-y-1.5 border-r-2 border-emerald-100 pr-3 mr-1">
-                                  <div className="flex flex-row-reverse items-center gap-2 text-[10px] text-slate-400 font-black">
-                                     <CalendarDays size={12} className="text-emerald-500" />
-                                     Expires: {new Date(activeSub.end_date).toLocaleDateString('ar-EG')}
-                                  </div>
-                                  <div className="flex flex-row-reverse items-center gap-2 text-[10px] text-emerald-600 font-black">
-                                     <Clock size={12} />
-                                     Hours Left: {(activeSub.total_hours - activeSub.used_hours).toFixed(1)}H
-                                  </div>
-                               </div>
-                             )}
-                          </div>
-                       </div>
-                    </td>
-
-                    <td className="px-6 py-8">
-                      <div className="flex items-center justify-center gap-3">
-                        <div className="bg-slate-50 border border-slate-100 px-4 py-2 rounded-2xl shadow-sm text-center">
-                          <span className="text-[8px] text-slate-400 uppercase tracking-widest block font-black mb-1">IN</span>
-                          <span className="text-slate-700 font-mono text-xs font-black">
-                            {new Date(session.start_time).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', timeZone: 'Africa/Cairo' })}
-                          </span>
-                        </div>
-                        <ChevronLeft size={16} className="text-slate-200" />
-                        <div className={`px-4 py-2 rounded-2xl border text-center ${session.end_time ? 'bg-slate-50 border-slate-100' : 'bg-emerald-50 border-emerald-100'}`}>
-                          <span className={`text-[8px] uppercase tracking-widest block font-black mb-1 ${session.end_time ? 'text-slate-400' : 'text-emerald-500'}`}>{session.end_time ? 'OUT' : 'NOW'}</span>
-                          <span className={`font-mono text-xs font-black ${session.end_time ? 'text-slate-700' : 'text-emerald-600'}`}>
-                            {session.end_time ? new Date(session.end_time).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', timeZone: 'Africa/Cairo' }) : 'ACTIVE'}
-                          </span>
-                        </div>
-                      </div>
-                    </td>
-
-                    <td className="px-6 py-8 text-center">
-                      {session.catering_amount > 0 ? (
-                        <div className="bg-amber-50/50 border border-amber-100 inline-block px-5 py-3 rounded-[1.5rem] group-hover:bg-amber-50 transition-all">
-                           <div className="flex items-center gap-2 justify-center text-amber-600 mb-1">
-                              <ShoppingBag size={14} />
-                              <span className="text-sm font-black">{session.catering_amount} EGP</span>
-                           </div>
-                           <p className="text-[9px] text-slate-400 font-black max-w-[120px] truncate">{session.orders?.map((o: any) => o.name).join('، ')}</p>
-                        </div>
-                      ) : (
-                        <span className="text-slate-200">-</span>
-                      )}
-                    </td>
-
-                    <td className="px-6 py-8 text-center">
-                       <div className={`p-4 rounded-[2rem] inline-block min-w-[120px] ${session.payment_method === 'subscription' ? 'bg-indigo-50 border border-indigo-100' : 'bg-emerald-50 border border-emerald-100'}`}>
-                          <p className={`text-lg font-black ${session.payment_method === 'subscription' ? 'text-indigo-600' : 'text-emerald-600'}`}>
-                             {session.total_amount ? `${session.total_amount}` : '0'} <span className="text-[10px] opacity-40">EGP</span>
-                          </p>
-                          {session.payment_method === 'subscription' && <span className="block text-[8px] font-black text-indigo-400 uppercase tracking-widest mt-1">Prepaid Package</span>}
-                       </div>
-                    </td>
-
-                    <td className="px-10 py-8">
-                       <div className="flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition-all duration-300">
-                          <button 
-                            onClick={() => {
-                              setEditingSession(session);
-                              setEditStartTime(toCairoInput(session.start_time));
-                              setEditEndTime(toCairoInput(session.end_time));
-                              setEditCatering(session.catering_amount.toString());
-                              setEditTotal(session.total_amount?.toString() || '0');
-                              setEditOrders(session.orders || []);
-                            }}
-                            className="p-3.5 bg-white text-indigo-400 rounded-2xl hover:bg-indigo-600 hover:text-white transition-all shadow-sm border border-slate-100 active:scale-90"
-                          >
-                            <Receipt size={18} />
-                          </button>
-                          <button 
-                            onClick={() => handleDeleteSession(session.id)}
-                            className="p-3.5 bg-white text-rose-300 rounded-2xl hover:bg-rose-600 hover:text-white transition-all shadow-sm border border-slate-100 active:scale-90"
-                          >
-                            <Trash2 size={18} />
-                          </button>
-                       </div>
-                    </td>
-                  </tr>
-                );
-              })}
+              {sessions.map(session => (
+                <SessionRow 
+                  key={session.id} 
+                  session={session} 
+                  onEdit={(s) => {
+                    setEditingSession(s);
+                    setEditStartTime(toCairoInput(s.start_time));
+                    setEditEndTime(toCairoInput(s.end_time));
+                    setEditCatering(s.catering_amount.toString());
+                    setEditTotal(s.total_amount?.toString() || '0');
+                    setEditOrders(s.orders || []);
+                  }}
+                  onDelete={handleDeleteSession}
+                />
+              ))}
             </tbody>
           </table>
+        </div>
+
+        {/* Mobile Card View */}
+        <div className="lg:hidden p-4 space-y-4">
+          {sessions.map((session) => {
+             const activeSub = session.customers?.subscriptions?.find((s: any) => 
+               s.status === 'Active' && 
+               new Date(s.end_date) >= new Date() &&
+               s.used_hours < s.total_hours
+             );
+
+             return (
+               <div key={session.id} className="bg-white rounded-3xl p-5 border border-slate-100 shadow-sm relative overflow-hidden group">
+                  <div className="flex justify-between items-start mb-4">
+                    <div className="flex items-center gap-3">
+                       <div className="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center text-slate-400 group-hover:text-indigo-500 transition-colors shrink-0">
+                          <User size={18} />
+                       </div>
+                       <div className="text-right">
+                          <p className="font-black text-slate-800 text-sm">
+                             {session.customers?.full_name || (session.user_code.startsWith('NA') ? `زائر (${session.user_code})` : 'مستخدم')}
+                          </p>
+                          <p className="text-[10px] font-black text-slate-400 mt-0.5">{session.user_code}</p>
+                       </div>
+                    </div>
+                    <div className="flex gap-2">
+                       <button 
+                         onClick={() => {
+                            setEditingSession(session);
+                            setEditStartTime(toCairoInput(session.start_time));
+                            setEditEndTime(toCairoInput(session.end_time));
+                            setEditCatering(session.catering_amount.toString());
+                            setEditTotal(session.total_amount?.toString() || '0');
+                            setEditOrders(session.orders || []);
+                         }}
+                         className="p-2.5 bg-indigo-50 text-indigo-600 rounded-xl active:scale-90"
+                       >
+                         <Receipt size={16} />
+                       </button>
+                       <button 
+                         onClick={() => handleDeleteSession(session.id)}
+                         className="p-2.5 bg-rose-50 text-rose-500 rounded-xl active:scale-90"
+                       >
+                         <Trash2 size={16} />
+                       </button>
+                    </div>
+                  </div>
+
+                  {activeSub && (
+                    <div className="mb-4 bg-emerald-50 rounded-2xl p-3 border border-emerald-100/50 flex justify-between items-center">
+                       <div className="flex items-center gap-1.5 text-emerald-600">
+                          <Sparkles size={12} className="animate-pulse" />
+                          <span className="text-[9px] font-black uppercase">Subscribed</span>
+                       </div>
+                       <p className="text-[9px] font-black text-emerald-700">Left: {(activeSub.total_hours - activeSub.used_hours).toFixed(1)}H</p>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-2 gap-3 mb-4">
+                    <div className="bg-slate-50 rounded-2xl p-3 border border-slate-100">
+                       <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1 text-right">الدخـول</p>
+                       <p className="text-xs font-black text-slate-700 text-right dir-ltr">
+                         {new Date(session.start_time).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', timeZone: 'Africa/Cairo' })}
+                       </p>
+                    </div>
+                    <div className={`rounded-2xl p-3 border ${session.end_time ? 'bg-slate-50 border-slate-100' : 'bg-emerald-50 border-emerald-100/50'}`}>
+                       <p className={`text-[8px] font-black uppercase tracking-widest mb-1 text-right ${session.end_time ? 'text-slate-400' : 'text-emerald-600'}`}>{session.end_time ? 'الخروج' : 'الحالة'}</p>
+                       <p className={`text-xs font-black text-right dir-ltr ${session.end_time ? 'text-slate-700' : 'text-emerald-700'}`}>
+                         {session.end_time ? new Date(session.end_time).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', timeZone: 'Africa/Cairo' }) : 'نشط الآن'}
+                       </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-4 border-t border-slate-50">
+                    <div className="text-right">
+                       <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">الكافتيريا</p>
+                       <p className="text-sm font-black text-slate-700">{session.catering_amount} <span className="text-[9px] opacity-40">EGP</span></p>
+                    </div>
+                    <div className={`px-4 py-2 rounded-2xl text-right ${session.payment_method === 'subscription' ? 'bg-indigo-50 border border-indigo-100' : 'bg-emerald-50 border border-emerald-100/50'}`}>
+                       <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-0.5">الإجمالي</p>
+                       <p className={`text-base font-black ${session.payment_method === 'subscription' ? 'text-indigo-600' : 'text-emerald-600'}`}>
+                         {session.total_amount || 0} <span className="text-[9px] opacity-40">EGP</span>
+                       </p>
+                    </div>
+                  </div>
+               </div>
+             );
+          })}
+          {sessions.length === 0 && (
+            <div className="py-20 text-center glass rounded-3xl border-2 border-dashed border-slate-100">
+              <User size={40} className="mx-auto text-slate-200 mb-4" />
+              <p className="font-black text-slate-400">لا يوجد بيانات لعرضها</p>
+            </div>
+          )}
         </div>
       </div>
 

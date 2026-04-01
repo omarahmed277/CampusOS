@@ -1,18 +1,18 @@
 
 import React, { useState, useEffect } from 'react';
-import { Package, Search, Filter, TrendingUp, AlertTriangle, ArrowDown, ArrowUp, RefreshCcw, Coffee, Printer, Trash2, Plus, X, Edit, Save, Image as ImageIcon } from 'lucide-react';
+import { Package, Search, Filter, TrendingUp, AlertTriangle, ArrowDown, ArrowUp, RefreshCcw, Coffee, Cookie, Sparkles, Printer, Trash2, Plus, X, Edit, Save, Image as ImageIcon } from 'lucide-react';
 import { Button, Card, CardHeader, CardTitle, CardContent, Badge, Input, Modal } from '../components/ui';
 import { supabase } from '../lib/supabase';
 
 export const InventoryPanel = ({ branchId }: { branchId?: string }) => {
-    const [activeCategory, setActiveCategory] = useState<'all' | 'kitchen' | 'office'>('all');
+    const [activeCategory, setActiveCategory] = useState<'all' | 'drinks' | 'snacks' | 'office'>('all');
     const [stockItems, setStockItems] = useState<any[]>([]);
     const [logs, setLogs] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [newItem, setNewItem] = useState({
         name: '',
-        category: 'مطبخ وبوفيه',
+        category: 'مشروبات',
         stock: 0,
         min_stock: 12,
         unit: 'كرتونة',
@@ -146,7 +146,8 @@ export const InventoryPanel = ({ branchId }: { branchId?: string }) => {
 
     const filteredItems = stockItems.filter(item => {
         const matchesCategory = activeCategory === 'all' || 
-                                (activeCategory === 'kitchen' && item.category === 'مطبخ وبوفيه') ||
+                                (activeCategory === 'drinks' && (item.category === 'مشروبات' || item.category === 'beverages')) ||
+                                (activeCategory === 'snacks' && (item.category === 'سناكس' || item.category === 'snacks')) ||
                                 (activeCategory === 'office' && item.category === 'أدوات مكتبية');
         
         const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase());
@@ -184,7 +185,7 @@ export const InventoryPanel = ({ branchId }: { branchId?: string }) => {
                 // Rule 7: Auto-Expense
                 if (totalCost > 0) {
                     await supabase.from('expenses').insert([{
-                        category: newItem.category === 'مطبخ وبوفيه' ? 'مطبخ وبوفيه' : 'أخرى',
+                        category: (newItem.category === 'مشروبات' || newItem.category === 'سناكس') ? 'مطبخ وبوفيه' : 'أخرى',
                         amount: totalCost,
                         date: new Date().toISOString(),
                         note: `رصيد افتتاح لـ ${newItem.name.trim()} (${newItem.stock / newItem.pieces_per_unit} كرتونة)`,
@@ -200,7 +201,7 @@ export const InventoryPanel = ({ branchId }: { branchId?: string }) => {
                     price: Number(newItem.selling_price) || (Number(newItem.price) * 1.5),
                     branch_id: newInv.branch_id || branchId || null,
                     is_active: true,
-                    category: 'beverages' // Default category
+                    category: newItem.category === 'مشروبات' ? 'beverages' : (newItem.category === 'سناكس' ? 'snacks' : 'office') // Sync category correctly
                 }]);
 
                 if (caterError) {
@@ -209,7 +210,7 @@ export const InventoryPanel = ({ branchId }: { branchId?: string }) => {
             }
             
             setIsAddModalOpen(false);
-            setNewItem({ name: '', category: 'مطبخ وبوفيه', stock: 0, min_stock: 12, unit: 'كرتونة', price: 0, pieces_per_unit: 1, selling_price: 0 });
+            setNewItem({ name: '', category: 'مشروبات', stock: 0, min_stock: 12, unit: 'كرتونة', price: 0, pieces_per_unit: 1, selling_price: 0 });
             setBoxCostStr('');
             setSellPriceStr('');
             setCartonQuantityStr('0');
@@ -284,6 +285,7 @@ export const InventoryPanel = ({ branchId }: { branchId?: string }) => {
             await supabase.from('catering_items').update({
                 name: editingItem.name,
                 price: sellingPriceVal,
+                category: editingItem.category === 'مشروبات' ? 'beverages' : (editingItem.category === 'سناكس' ? 'snacks' : 'office'),
                 is_active: true
             }).eq('inventory_id', targetId);
 
@@ -402,21 +404,27 @@ export const InventoryPanel = ({ branchId }: { branchId?: string }) => {
                 <div className="flex gap-2 bg-slate-50 p-1.5 rounded-2xl">
                     <button
                         onClick={() => setActiveCategory('all')}
-                        className={`px-6 py-2.5 rounded-xl font-black text-sm transition-all ${activeCategory === 'all' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                        className={`px-6 py-2.5 rounded-xl font-black text-sm transition-all flex items-center gap-2 ${activeCategory === 'all' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
                     >
-                        الكل
+                        <Sparkles size={14} /> الكل
                     </button>
                     <button
-                        onClick={() => setActiveCategory('kitchen')}
-                        className={`px-6 py-2.5 rounded-xl font-black text-sm transition-all ${activeCategory === 'kitchen' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                        onClick={() => setActiveCategory('drinks')}
+                        className={`px-6 py-2.5 rounded-xl font-black text-sm transition-all flex items-center gap-2 ${activeCategory === 'drinks' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
                     >
-                        المطبخ والكاترينج
+                        <Coffee size={14} /> المشروبات
+                    </button>
+                    <button
+                        onClick={() => setActiveCategory('snacks')}
+                        className={`px-6 py-2.5 rounded-xl font-black text-sm transition-all flex items-center gap-2 ${activeCategory === 'snacks' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                    >
+                        <Cookie size={14} /> السناكس
                     </button>
                     <button
                         onClick={() => setActiveCategory('office')}
-                        className={`px-6 py-2.5 rounded-xl font-black text-sm transition-all ${activeCategory === 'office' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                        className={`px-6 py-2.5 rounded-xl font-black text-sm transition-all flex items-center gap-2 ${activeCategory === 'office' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
                     >
-                        الأدوات المكتبية
+                        <Package size={14} /> الأدوات المكتبية
                     </button>
                 </div>
 
@@ -478,7 +486,8 @@ export const InventoryPanel = ({ branchId }: { branchId?: string }) => {
                                 <div>
                                     <label className="block text-sm font-bold text-slate-600 mb-2">التصنيف</label>
                                     <select value={newItem.category} onChange={e => setNewItem({ ...newItem, category: e.target.value })} className="w-full border-2 border-slate-100 rounded-xl px-4 py-3">
-                                        <option value="مطبخ وبوفيه">مطبخ وبوفيه</option>
+                                        <option value="مشروبات">مشروبات</option>
+                                        <option value="سناكس">سناكس</option>
                                         <option value="أدوات مكتبية">أدوات مكتبية</option>
                                         <option value="أخرى">أخرى</option>
                                     </select>
@@ -705,7 +714,8 @@ export const InventoryPanel = ({ branchId }: { branchId?: string }) => {
                                     <div>
                                         <label className="block text-sm font-bold text-slate-600 mb-2 px-1">التصنيف</label>
                                         <select value={editingItem.category} onChange={e => setEditingItem({ ...editingItem, category: e.target.value })} className="w-full border-2 border-slate-100 rounded-xl px-4 py-3 bg-white font-bold outline-none focus:border-indigo-500">
-                                            <option value="مطبخ وبوفيه">مطبخ وبوفيه</option>
+                                            <option value="مشروبات">مشروبات</option>
+                                        <option value="سناكس">سناكس</option>
                                             <option value="أدوات مكتبية">أدوات مكتبية</option>
                                             <option value="أخرى">أخرى</option>
                                         </select>
@@ -874,11 +884,17 @@ export const InventoryPanel = ({ branchId }: { branchId?: string }) => {
                                 <tr key={item.id} className="hover:bg-slate-50 transition-all group animate-in slide-in-from-right duration-300" style={{ animationDelay: `${idx * 50}ms` }}>
                                 <td className="px-8 py-6">
                                     <div className="flex items-center gap-4">
-                                        <div className={`w-12 h-12 rounded-2xl overflow-hidden flex items-center justify-center shadow-sm ${item.category === 'مطبخ وبوفيه' ? 'bg-amber-50 text-amber-600' : 'bg-blue-50 text-blue-600'}`}>
+                                        <div className={`w-12 h-12 rounded-2xl overflow-hidden flex items-center justify-center shadow-sm ${
+                                            (item.category === 'مشروبات' || item.category === 'beverages') ? 'bg-blue-50 text-blue-600' : 
+                                            (item.category === 'سناكس' || item.category === 'snacks') ? 'bg-amber-50 text-amber-600' : 
+                                            'bg-rose-50 text-rose-600'
+                                        }`}>
                                             {item.image_url && item.image_url.trim() !== '' ? (
                                                 <img src={item.image_url} className="w-full h-full object-cover" alt="" />
                                             ) : (
-                                                item.category === 'مطبخ وبوفيه' ? <Coffee size={20} /> : <Printer size={20} />
+                                                (item.category === 'مشروبات' || item.category === 'beverages') ? <Coffee size={20} /> : 
+                                                (item.category === 'سناكس' || item.category === 'snacks') ? <Cookie size={20} /> : 
+                                                <Package size={20} />
                                             )}
                                         </div>
                                         <div>

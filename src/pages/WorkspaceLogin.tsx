@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Clock, LogOut, CheckCircle2, Coffee, ShoppingBag, Info, HelpCircle, User, Sparkles, CalendarDays, ChevronLeft, Receipt, X, Search, Package, RefreshCw, Plus, Cookie, Zap, Lock, Wind, PenTool, LayoutGrid, MapPin } from 'lucide-react';
+import { Clock, LogOut, CheckCircle2, Coffee, ShoppingBag, Info, HelpCircle, User, Sparkles, CalendarDays, ChevronLeft, Receipt, X, Search, Package, RefreshCw, Plus, Cookie, Zap, Lock, Wind, PenTool, LayoutGrid, LayoutList, MapPin, ArrowRight } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { Button, Modal } from '../components/ui';
 
@@ -12,7 +12,8 @@ export const WorkspaceLogin = () => {
   const [cart, setCart] = useState<{ [id: string]: { item: any, quantity: number } }>({});
   const [orderLoading, setOrderLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<activeTabType>('session');
-  const [storeCategory, setStoreCategory] = useState<'all' | 'kitchen' | 'office'>('all');
+  const [storeCategory, setStoreCategory] = useState<'all' | 'drinks' | 'snacks' | 'office'>('all');
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [storeSearch, setStoreSearch] = useState('');
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
@@ -34,6 +35,7 @@ export const WorkspaceLogin = () => {
   const [customCollege, setCustomCollege] = useState('');
   const [showCustomCollege, setShowCustomCollege] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [showCheckoutConfirm, setShowCheckoutConfirm] = useState(false);
   const [regSuccessData, setRegSuccessData] = useState<{name: string, code: string, email: string} | null>(null);
 
   const colleges = [
@@ -715,7 +717,9 @@ export const WorkspaceLogin = () => {
               </div>
               
               <button
-                onClick={handleCheckoutRequest}
+                onClick={() => {
+                  setShowCheckoutConfirm(true);
+                }}
                 disabled={session.status === 'checkout_requested' || loading}
                 className={`w-full flex items-center justify-center gap-3 py-4 md:py-5 rounded-2xl font-black text-lg transition-all active:scale-95 border ${
                   session.status === 'checkout_requested'
@@ -726,11 +730,54 @@ export const WorkspaceLogin = () => {
                 {loading ? 'جاري المعالجة..' : session.status === 'checkout_requested' ? 'تم طلب إنهاء الجلسة' : 'إنهاء الجلسة والحساب'}
                 {!loading && session.status !== 'checkout_requested' && <LogOut size={22} />}
               </button>
+
+              {/* Step-by-step confirmation for Checkout */}
+              {showCheckoutConfirm && (
+                <Modal
+                  isOpen={showCheckoutConfirm}
+                  onClose={() => setShowCheckoutConfirm(false)}
+                  title="تأكيد إنهاء الجلسة"
+                  className="max-w-sm text-center"
+                >
+                  <div className="relative space-y-8 pb-4">
+                    <div className="w-24 h-24 bg-rose-500/10 rounded-full flex items-center justify-center mx-auto ring-8 ring-rose-500/5 animate-pulse mb-4 mt-4">
+                      <HelpCircle size={48} className="text-rose-500" />
+                    </div>
+
+                    <div className="space-y-4">
+                      <h3 className="text-2xl font-black text-white leading-tight">
+                        هل أنت متأكد من إنهاء الجلسة؟
+                      </h3>
+                      <p className="text-slate-400 text-sm font-bold leading-relaxed px-4">
+                        سيتم حساب الوقت الإجمالي وطلب إنهاء الجلسة من الـ Admin. لا يمكنك طلب خدمات إضافية بعد هذا الإجراء.
+                      </p>
+                    </div>
+
+                    <div className="flex flex-col gap-3">
+                      <Button
+                        onClick={() => {
+                          setShowCheckoutConfirm(false);
+                          handleCheckoutRequest();
+                        }}
+                        className="w-full h-16 bg-rose-600 text-white rounded-2xl font-black text-lg transition-all active:scale-95 shadow-xl shadow-rose-900/20 hover:bg-rose-500"
+                      >
+                        نعم، إنهاء الجلسة
+                      </Button>
+                      <Button
+                        onClick={() => setShowCheckoutConfirm(false)}
+                        className="w-full h-14 bg-white/5 text-slate-300 border border-white/10 rounded-2xl font-black text-md transition-all active:scale-95 hover:bg-white/10"
+                      >
+                        تراجع، ابقى هنا
+                      </Button>
+                    </div>
+                  </div>
+                </Modal>
+              )}
             </div>
           )}
           
           {activeTab === 'catering' && (
-            <div className="w-full max-w-lg mx-auto space-y-6 animate-in fade-in duration-500 pb-20">
+            <div className="w-full max-w-lg mx-auto space-y-6 animate-in fade-in duration-500 pb-20 text-right">
                 <div className="text-center space-y-2 mb-8">
                   <h2 className="text-3xl font-black text-white tracking-tight"> Cloud Store </h2>
                   <p className="text-slate-400 text-xs font-bold uppercase tracking-widest">Cloud Store & Catering</p>
@@ -749,25 +796,43 @@ export const WorkspaceLogin = () => {
                     />
                   </div>
 
-                  <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide no-scrollbar">
-                    {[
-                      { id: 'all', label: 'الكل', icon: Sparkles },
-                      { id: 'kitchen', label: 'المشروبات والسناكس', icon: Coffee },
-                      { id: 'office', label: 'أدوات مكتبية', icon: Package }
-                    ].map(cat => (
-                      <button
-                        key={cat.id}
-                        onClick={() => setStoreCategory(cat.id as any)}
-                        className={`flex items-center gap-2 px-6 py-3 rounded-full font-black text-xs whitespace-nowrap transition-all border ${
-                          storeCategory === cat.id 
-                            ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-600/20 scale-105' 
-                            : 'bg-white/5 border-white/10 text-slate-400 hover:bg-white/10'
-                        }`}
+                  <div className="flex items-center justify-between gap-2 overflow-x-auto pb-2 scrollbar-hide no-scrollbar flex-row-reverse">
+                    <div className="flex gap-1 bg-white/5 p-1 rounded-2xl border border-white/10 shrink-0 shadow-lg">
+                      <button 
+                        onClick={() => setViewMode('grid')}
+                        className={`p-2.5 rounded-xl transition-all ${viewMode === 'grid' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
                       >
-                        <cat.icon size={14} />
-                        {cat.label}
+                        <LayoutGrid size={20} />
                       </button>
-                    ))}
+                      <button 
+                        onClick={() => setViewMode('list')}
+                        className={`p-2.5 rounded-xl transition-all ${viewMode === 'list' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
+                      >
+                        <LayoutList size={20} />
+                      </button>
+                    </div>
+
+                    <div className="flex gap-2">
+                        {[
+                        { id: 'all', label: 'الكل', icon: Sparkles },
+                        { id: 'drinks', label: 'المشروبات', icon: Coffee },
+                        { id: 'snacks', label: 'السناكس', icon: Cookie },
+                        { id: 'office', label: 'أدوات مكتبية', icon: Package }
+                        ].map(cat => (
+                        <button
+                            key={cat.id}
+                            onClick={() => setStoreCategory(cat.id as any)}
+                            className={`flex items-center gap-2 px-6 py-3 rounded-full font-black text-xs whitespace-nowrap transition-all border ${
+                            storeCategory === cat.id 
+                                ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-600/20 scale-105' 
+                                : 'bg-white/5 border-white/10 text-slate-400 hover:bg-white/10'
+                            }`}
+                        >
+                            <cat.icon size={14} />
+                            {cat.label}
+                        </button>
+                        ))}
+                    </div>
                   </div>
                 </div>
 
@@ -802,13 +867,15 @@ export const WorkspaceLogin = () => {
                    </div>
                 )}
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className={viewMode === 'grid' ? "grid grid-cols-1 sm:grid-cols-2 gap-4" : "flex flex-col gap-3"}>
                   {cateringItems
                     .filter(item => {
-                      const matchesSearch = item.name.toLowerCase().includes(storeSearch.toLowerCase());
+                      const name = item.name.toLowerCase();
+                      const matchesSearch = name.includes(storeSearch.toLowerCase());
                       const matchesCat = storeCategory === 'all' || 
-                        (storeCategory === 'kitchen' && item.category === 'مطبخ وبوفيه') ||
-                        (storeCategory === 'office' && item.category === 'أدوات مكتبية');
+                        (storeCategory === 'drinks' && (item.category === 'beverages' || item.category === 'مشروبات' || name.includes('قهوة') || name.includes('شاي') || name.includes('كولا') || name.includes('ماء'))) ||
+                        (storeCategory === 'snacks' && (item.category === 'snacks' || item.category === 'سناكس' || name.includes('شيبس') || name.includes('بسكويت') || name.includes('كرواسون'))) ||
+                        (storeCategory === 'office' && (item.category === 'office' || item.category === 'أدوات مكتبية'));
                       return matchesSearch && matchesCat;
                     })
                     .length > 0 ? (
@@ -816,7 +883,8 @@ export const WorkspaceLogin = () => {
                         .filter(item => {
                            const matchesSearch = item.name.toLowerCase().includes(storeSearch.toLowerCase());
                            const matchesCat = storeCategory === 'all' || 
-                             (storeCategory === 'kitchen' && item.category === 'مطبخ وبوفيه') ||
+                             (storeCategory === 'drinks' && (item.category === 'مشروبات' || item.category === 'beverages')) ||
+                             (storeCategory === 'snacks' && (item.category === 'سناكس' || item.category === 'snacks')) ||
                              (storeCategory === 'office' && item.category === 'أدوات مكتبية');
                            return matchesSearch && matchesCat;
                         })
@@ -848,6 +916,62 @@ export const WorkspaceLogin = () => {
                             Icon = PenTool;
                           }
 
+                          if (viewMode === 'list') {
+                            return (
+                                <div key={item.id} className="relative group/list">
+                                    <div className="bg-[#0B0F19]/80 backdrop-blur-3xl border border-white/5 hover:border-white/10 rounded-2xl p-3 flex items-center gap-4 transition-all duration-300 hover:bg-white/5 shadow-lg text-right">
+                                        <div className="w-16 h-16 rounded-xl overflow-hidden shrink-0 border border-white/5 relative">
+                                            {item.image_url ? (
+                                                <img src={item.image_url} alt={item.name} className="w-full h-full object-cover" />
+                                            ) : (
+                                                <div className={`w-full h-full flex items-center justify-center bg-gradient-to-br ${typeGlow} opacity-30`}>
+                                                    <Icon size={24} className="opacity-50" />
+                                                </div>
+                                            )}
+                                            {isLowStock && (
+                                                <div className="absolute inset-x-0 bottom-0 bg-rose-500 text-[8px] font-black py-0.5 text-center text-white uppercase z-10">رصيد قليل</div>
+                                            )}
+                                            
+                                            {/* Category Icon Badge - Floating over image */}
+                                            <div className={`absolute top-1 right-1 w-5 h-5 rounded-md flex items-center justify-center border border-white/10 backdrop-blur-md z-10 ${typeColor}`}>
+                                               <Icon size={10} />
+                                            </div>
+                                        </div>
+
+                                        <div className="flex-1">
+                                            <h4 className="text-white font-black text-sm line-clamp-1">{item.name}</h4>
+                                            <div className="flex items-center gap-2 mt-1">
+                                                <span className="text-indigo-400 font-black text-sm">{item.selling_price} EGP</span>
+                                                <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">{isDrink ? 'مشروبات' : isSnack ? 'سناكس' : isOffice ? 'أدوات' : 'أخرى'}</span>
+                                            </div>
+                                        </div>
+
+                                        <div className="shrink-0 flex items-center gap-2">
+                                            {cartEntry ? (
+                                                <div className="flex items-center bg-white/5 rounded-xl border border-white/10 overflow-hidden">
+                                                    <button onClick={() => removeFromCart(item.id)} className="p-2 hover:bg-rose-500/20 text-rose-400 transition-colors">
+                                                        <X size={14} />
+                                                    </button>
+                                                    <span className="px-2 text-white font-black text-sm">{cartEntry.quantity}</span>
+                                                    <button onClick={() => addToCart(item)} disabled={session?.status === 'checkout_requested'} className="p-2 hover:bg-emerald-500/20 text-emerald-400 transition-colors disabled:opacity-30">
+                                                        <Plus size={14} />
+                                                    </button>
+                                                </div>
+                                            ) : (
+                                                <button 
+                                                    onClick={() => addToCart(item)} 
+                                                    disabled={session?.status === 'checkout_requested' || (item.stock || 0) <= 0}
+                                                    className="w-10 h-10 rounded-xl bg-indigo-600/20 border border-indigo-500/30 text-indigo-400 flex items-center justify-center hover:bg-indigo-600 hover:text-white transition-all disabled:opacity-20"
+                                                >
+                                                    <Plus size={18} />
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                          }
+
                           return (
                             <div key={item.id} className="relative group/card h-full">
                               <div className={`absolute inset-0 rounded-[2.5rem] bg-gradient-to-br transition-all duration-500 blur-xl opacity-0 group-hover/card:opacity-30 ${typeGlow}`} />
@@ -867,6 +991,12 @@ export const WorkspaceLogin = () => {
                                          <span className="text-[8px] font-black uppercase mt-3 tracking-[0.3em] opacity-20">NO IMAGE</span>
                                       </div>
                                     )}
+                                    
+                                    {/* Category Icon Badge - Premium Float */}
+                                    <div className={`absolute top-4 right-4 z-20 w-10 h-10 rounded-2xl flex items-center justify-center border border-white/10 backdrop-blur-xl shadow-2xl transform group-hover/card:scale-110 transition-all duration-500 ${typeColor}`}>
+                                       <Icon size={18} />
+                                       <div className="absolute inset-0 rounded-2xl bg-white/5 animate-pulse" />
+                                    </div>
                                     
                                     {/* Glassmorphic Gradient Overlay */}
                                     <div className="absolute inset-0 bg-gradient-to-t from-[#0B0F19] via-transparent to-black/10 opacity-70 group-hover/card:opacity-40 transition-opacity duration-500" />
@@ -1122,6 +1252,37 @@ export const WorkspaceLogin = () => {
             })}
           </div>
         </div>
+
+        {/* Floating Checkout Button */}
+        {activeTab === 'catering' && Object.keys(cart).length > 0 && (
+          <div className="fixed bottom-24 left-6 z-[60] animate-in slide-in-from-bottom-10 fade-in duration-500">
+             <button
+                onClick={handleCheckoutCart}
+                disabled={orderLoading}
+                className="group relative flex items-center gap-4 bg-indigo-600 hover:bg-indigo-500 text-white pl-6 pr-4 py-4 rounded-[2rem] shadow-[0_20px_50px_rgba(79,70,229,0.4)] transition-all active:scale-95 disabled:opacity-50"
+             >
+                <div className="absolute -inset-1 bg-gradient-to-r from-indigo-500 to-purple-500 rounded-[2rem] blur opacity-30 group-hover:opacity-50 transition-opacity" />
+                
+                <div className="relative text-right">
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-60 leading-none mb-1">تأكيد الشراء</p>
+                  <p className="text-lg font-black leading-none">إتمام الطلب</p>
+                </div>
+
+                <div className="relative w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center group-hover:rotate-12 transition-transform">
+                  {orderLoading ? (
+                    <RefreshCw className="animate-spin" size={24} />
+                  ) : (
+                    <div className="relative">
+                      <ShoppingBag size={24} />
+                      <div className="absolute -top-1 -right-1 w-5 h-5 bg-emerald-500 rounded-full flex items-center justify-center text-[10px] font-black border-2 border-indigo-600">
+                        {Object.values(cart).reduce((s, e: any) => s + e.quantity, 0)}
+                      </div>
+                    </div>
+                  )}
+                </div>
+             </button>
+          </div>
+        )}
       </div>
     );
   }
@@ -1133,158 +1294,212 @@ export const WorkspaceLogin = () => {
       <div className="absolute bottom-[-10%] left-[-10%] w-[500px] h-[500px] bg-[#1ed788]/15 rounded-full blur-[120px] pointer-events-none" />
       <div className="absolute top-[30%] left-[20%] w-[300px] h-[300px] bg-[#f78c2a]/10 rounded-full blur-[100px] pointer-events-none" />
 
-      <div className="bg-white/5 backdrop-blur-2xl border border-white/10 rounded-[3rem] p-8 md:p-12 w-full max-w-md relative z-10 shadow-[0_0_50px_rgba(0,0,0,0.5)] animate-in zoom-in-95 duration-700">
-        <div className="text-center mb-10">
-          <div className="w-24 h-24 bg-white/5 backdrop-blur-md rounded-3xl mx-auto flex items-center justify-center mb-6 border border-white/10 shadow-2xl p-3">
-             <img src="/logo.png" alt="Cloud Logo" className="w-full h-full object-contain" />
+      <div className="bg-[#0B0F19]/40 backdrop-blur-3xl border border-white/5 rounded-[3rem] p-8 md:p-12 w-full max-w-md relative z-10 shadow-[0_32px_64px_-12px_rgba(0,0,0,0.6)] animate-in zoom-in-95 fade-in duration-1000 ring-1 ring-white/10">
+        <div className="text-center mb-8 group">
+          <div className="w-20 h-20 bg-gradient-to-br from-white/10 to-transparent backdrop-blur-md rounded-3xl mx-auto flex items-center justify-center mb-4 border border-white/10 shadow-2xl p-4 group-hover:scale-110 group-hover:rotate-6 transition-all duration-500">
+             <img src="/logo.png" alt="Cloud Logo" className="w-full h-full object-contain filter drop-shadow-lg" />
           </div>
-          
-          <h1 className="text-3xl font-black text-white mb-2 tracking-tight">Cloud Co-Working Space</h1>
-          <p className="text-slate-400 font-bold">{isForgotCode ? 'استعادة كود الدخول' : isSignUp ? 'أنشئ حساباً لبدء جلستك' : 'أدخل بياناتك لبدء جلستك'}</p>
+          <h1 className="text-2xl font-black text-white mb-2 tracking-tight">Cloud Co-Working</h1>
+          <div className="h-1 w-10 bg-indigo-500 mx-auto rounded-full shadow-[0_0_15px_rgba(99,102,241,0.5)]" />
         </div>
 
+        {/* Auth Tabs */}
+        {!isForgotCode && (
+          <div className="flex p-1.5 bg-white/5 rounded-2xl border border-white/10 mb-8 relative">
+            <div 
+              className="absolute top-1.5 bottom-1.5 w-[calc(50%-6px)] bg-indigo-600 rounded-xl transition-all duration-500 ease-in-out shadow-lg shadow-indigo-600/30"
+              style={{ 
+                left: isSignUp ? '6px' : 'calc(50% + 3px)',
+                right: isSignUp ? 'calc(50% + 3px)' : '6px'
+              }}
+            />
+            <button
+              onClick={() => { setIsSignUp(false); setError(''); }}
+              className={`relative z-10 flex-1 py-3 text-sm font-black transition-colors duration-300 ${!isSignUp ? 'text-white' : 'text-slate-500 hover:text-slate-300'}`}
+            >
+              تسجيل الدخول
+            </button>
+            <button
+              onClick={() => { setIsSignUp(true); setError(''); }}
+              className={`relative z-10 flex-1 py-3 text-sm font-black transition-colors duration-300 ${isSignUp ? 'text-white' : 'text-slate-500 hover:text-slate-300'}`}
+            >
+              إنشاء حساب
+            </button>
+          </div>
+        )}
+
+        {isForgotCode && (
+           <div className="text-center mb-8">
+             <p className="text-slate-400 font-bold text-sm tracking-wide">استعادة كود الدخول</p>
+           </div>
+        )}
+
         {isForgotCode ? (
-          <form onSubmit={handleForgotCode} className="space-y-6">
+          <form onSubmit={handleForgotCode} className="space-y-6 animate-in slide-in-from-right-4 duration-500">
              {error && (
-              <div className="bg-rose-500/10 border border-rose-500/20 text-rose-400 px-4 py-3 rounded-xl text-sm font-bold text-center">
+              <div className="bg-rose-500/10 border border-rose-500/20 text-rose-400 px-4 py-3 rounded-xl text-[10px] font-black tracking-widest text-center uppercase">
                 {error}
               </div>
             )}
 
             <div className="space-y-2">
-              <label className="text-sm font-bold text-slate-400 block ml-1">البريد الإلكتروني أو رقم الهاتف المسجل</label>
-              <input
-                type="text"
-                required
-                value={forgotEmail}
-                onChange={(e) => setForgotEmail(e.target.value)}
-                className="w-full bg-[#0B0F19]/60 border border-white/10 rounded-2xl px-5 py-4 text-white font-bold focus:outline-none focus:border-[#1e75b9] focus:ring-1 focus:ring-[#1e75b9] transition-all"
-                placeholder="01xxxxxxxxx أو example@mail.com"
-                dir="auto"
-              />
-              <p className="text-[10px] text-[#f78c2a] font-black mr-1 mt-1 italic leading-relaxed">تنبيه: سيتم إرسال الكود فوراً إلى بريدك الإلكتروني المسجل لدينا.</p>
+              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mr-1">البريد الإلكتروني أو رقم الهاتف</label>
+              <div className="relative group">
+                <input
+                  type="text"
+                  required
+                  value={forgotEmail}
+                  onChange={(e) => setForgotEmail(e.target.value)}
+                  className="w-full h-14 bg-white/5 border border-white/10 rounded-2xl px-5 text-white font-bold focus:outline-none focus:border-[#f78c2a] focus:ring-4 focus:ring-[#f78c2a]/10 transition-all placeholder:text-slate-600"
+                  placeholder="01xxxxxxxxx أو example@mail.com"
+                  dir="auto"
+                />
+              </div>
+              <div className="flex items-start gap-2 bg-[#f78c2a]/10 p-4 rounded-2xl border border-[#f78c2a]/20 mt-4">
+                 <Info size={16} className="text-[#f78c2a] shrink-0 mt-0.5" />
+                 <p className="text-[10px] text-slate-300 font-bold leading-relaxed">
+                   تنبيه: سيتم إرسال الكود فوراً إلى بريدك الإلكتروني المسجل لدينا لتتمكن من الدخول.
+                 </p>
+              </div>
             </div>
 
             <div className="pt-4 flex flex-col gap-4">
               <button
                 type="submit"
                 disabled={loading || !forgotEmail}
-                className="w-full bg-[#f78c2a] hover:bg-[#e67b1a] disabled:opacity-50 text-white rounded-2xl py-4 font-black text-lg transition-all shadow-[0_0_20px_rgba(247,140,42,0.3)] active:scale-95"
+                className="w-full h-16 bg-[#f78c2a] hover:bg-[#e67b1a] disabled:opacity-50 text-white rounded-2xl font-black text-lg transition-all shadow-[0_20px_40px_rgba(247,140,42,0.2)] active:scale-95 flex items-center justify-center gap-3"
               >
-                {loading ? 'جاري الإرسال...' : 'إرسال الكود للبريد'}
+                {loading ? <RefreshCw className="animate-spin" /> : (
+                  <>
+                    <span>إرسال الكود للبريد</span>
+                    <Zap size={20} />
+                  </>
+                )}
               </button>
               
               <button
                 type="button"
                 onClick={() => { setIsForgotCode(false); setError(''); }}
-                className="text-slate-400 hover:text-white text-sm font-bold transition-colors"
+                className="text-slate-500 hover:text-white text-xs font-black uppercase tracking-widest transition-colors flex items-center justify-center gap-2"
               >
-                العودة لتسجيل الدخول
+                <ChevronLeft size={14} /> العودة لتسجيل الدخول
               </button>
             </div>
           </form>
         ) : isSignUp ? (
-          <form onSubmit={handleSignUp} className="space-y-5">
+          <form onSubmit={handleSignUp} className="space-y-5 animate-in slide-in-from-left-4 duration-500">
             {error && (
-              <div className="bg-rose-500/10 border border-rose-500/20 text-rose-400 px-4 py-3 rounded-xl text-sm font-bold text-center">
+              <div className="bg-rose-500/10 border border-rose-500/20 text-rose-400 px-4 py-3 rounded-xl text-[10px] font-black tracking-widest text-center uppercase">
                 {error}
               </div>
             )}
             
             <div className="space-y-1.5">
-              <label className="text-sm font-bold text-slate-400 block ml-1">الاسم بالكامل</label>
-              <input
-                type="text"
-                required
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                className="w-full bg-[#0B0F19]/60 border border-white/10 rounded-2xl px-5 py-4 text-white font-bold focus:outline-none focus:border-[#1e75b9] focus:ring-1 focus:ring-[#1e75b9] transition-all"
-                placeholder="أحمد محمد"
-              />
+              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mr-1">الاسم بالكامل</label>
+              <div className="relative group">
+                <User size={18} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-600 transition-colors group-focus-within:text-indigo-400" />
+                <input
+                  type="text"
+                  required
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  className="w-full h-14 bg-white/5 border border-white/10 rounded-2xl pr-12 pl-5 text-white font-bold focus:outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all placeholder:text-slate-700"
+                  placeholder="أحمد محمد"
+                />
+              </div>
             </div>
 
-            <div className="space-y-1.5">
-              <label className="text-sm font-bold text-slate-400 block ml-1">رقم الهاتف</label>
-              <input
-                type="tel"
-                required
-                value={phoneNumber}
-                onChange={(e) => setPhoneNumber(e.target.value)}
-                className="w-full bg-[#0B0F19]/60 border border-white/10 rounded-2xl px-5 py-4 text-white font-bold text-left focus:outline-none focus:border-[#1e75b9] focus:ring-1 focus:ring-[#1e75b9] transition-all"
-                placeholder="01xxxxxxxxx"
-                dir="ltr"
-              />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mr-1">رقم الهاتف</label>
+                <input
+                  type="tel"
+                  required
+                  value={phoneNumber}
+                  onChange={(e) => setPhoneNumber(e.target.value)}
+                   className="w-full h-14 bg-white/5 border border-white/10 rounded-2xl px-5 text-white font-bold text-left focus:outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all placeholder:text-slate-700"
+                  placeholder="01xxxxxxxxx"
+                  dir="ltr"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mr-1">البريد الإلكتروني</label>
+                <input
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full h-14 bg-white/5 border border-white/10 rounded-2xl px-5 text-white font-bold text-left focus:outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all placeholder:text-slate-700"
+                  placeholder="example@mail.com"
+                  dir="ltr"
+                />
+              </div>
             </div>
 
-            <div className="space-y-1.5">
-              <label className="text-sm font-bold text-slate-400 block ml-1">البريد الإلكتروني</label>
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full bg-[#0B0F19]/60 border border-white/10 rounded-2xl px-5 py-4 text-white font-bold text-left focus:outline-none focus:border-[#1e75b9] focus:ring-1 focus:ring-[#1e75b9] transition-all"
-                placeholder="example@mail.com"
-                dir="ltr"
-              />
-            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-1.5 animate-in fade-in duration-700">
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mr-1">تاريخ الميلاد</label>
+                <div className="relative group/date">
+                   <div className="absolute right-4 top-1/2 -translate-y-1/2 p-2 bg-white/5 rounded-lg border border-white/10 text-indigo-400 pointer-events-none group-focus-within/date:bg-indigo-600/20 group-focus-within/date:text-indigo-200 transition-all">
+                      <CalendarDays size={16} />
+                   </div>
+                  <input
+                    type="date"
+                    value={birthDate}
+                    onChange={(e) => setBirthDate(e.target.value)}
+                    className="w-full h-14 bg-white/5 border border-white/10 rounded-2xl pr-14 pl-5 text-white font-bold text-left focus:outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all cursor-pointer [color-scheme:dark]"
+                    dir="ltr"
+                  />
+                </div>
+              </div>
 
-            <div className="space-y-1.5">
-              <label className="text-sm font-bold text-slate-400 block ml-1">تاريخ الميلاد</label>
-              <input
-                type="date"
-                value={birthDate}
-                onChange={(e) => setBirthDate(e.target.value)}
-                className="w-full bg-[#0B0F19]/60 border border-white/10 rounded-2xl px-5 py-4 text-white font-bold text-left focus:outline-none focus:border-[#1e75b9] focus:ring-1 focus:ring-[#1e75b9] transition-all"
-                dir="ltr"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-sm font-bold text-slate-400 block ml-1">الجامعة / الكلية</label>
-              <select
-                value={college}
-                onChange={(e) => {
-                  setCollege(e.target.value);
-                  setShowCustomCollege(e.target.value === 'أخرى');
-                }}
-                className="w-full bg-[#0B0F19]/60 border border-white/10 rounded-2xl px-5 py-4 text-white font-bold focus:outline-none focus:border-[#1e75b9] focus:ring-1 focus:ring-[#1e75b9] transition-all"
-              >
-                <option value="">اختر الجامعة</option>
-                {colleges.map((c) => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mr-1">الجامعة / الكلية</label>
+                <select
+                  value={college}
+                  onChange={(e) => {
+                    setCollege(e.target.value);
+                    setShowCustomCollege(e.target.value === 'أخرى');
+                  }}
+                  className="w-full h-14 bg-[#111827] border border-white/10 rounded-2xl px-5 text-white font-bold focus:outline-none focus:border-indigo-500 transition-all appearance-none cursor-pointer"
+                >
+                  <option value="" className="bg-[#0B0F19]">اختر الجامعة</option>
+                  {colleges.map((c) => (
+                    <option key={c} value={c} className="bg-[#0B0F19]">{c}</option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             {showCustomCollege && (
               <div className="space-y-1.5 animate-in slide-in-from-top-2 duration-300">
-                <label className="text-sm font-bold text-[#f78c2a] block ml-1">اسم الجامعة الأخرى</label>
+                <label className="text-[10px] font-black text-[#f78c2a] uppercase tracking-[0.2em] block mr-1">اسم الجامعة الأخرى</label>
                 <input
                   type="text"
                   required
                   value={customCollege}
                   onChange={(e) => setCustomCollege(e.target.value)}
-                  className="w-full bg-[#0B0F19]/60 border border-[#f78c2a]/30 rounded-2xl px-5 py-4 text-white font-bold focus:outline-none focus:border-[#f78c2a] focus:ring-1 focus:ring-[#f78c2a] transition-all"
+                  className="w-full h-14 bg-white/5 border border-white/10 rounded-2xl px-5 text-white font-bold focus:outline-none focus:border-[#f78c2a] focus:ring-4 focus:ring-[#f78c2a]/10 transition-all placeholder:text-slate-600"
                   placeholder="اكتب اسم الجامعة هنا..."
                 />
               </div>
             )}
 
             <div className="space-y-1.5">
-              <label className="text-sm font-bold text-slate-400 block ml-1">النوع</label>
-              <div className="grid grid-cols-2 gap-3">
+              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mr-1">النوع</label>
+              <div className="grid grid-cols-2 gap-3 p-1 bg-white/5 rounded-2xl border border-white/10">
                 <button
                   type="button"
                   onClick={() => setGender('Male')}
-                  className={`py-3 rounded-xl font-bold transition-all border ${gender === 'Male' ? 'bg-[#1e75b9] border-[#1e75b9] text-white' : 'bg-[#0B0F19]/60 border-white/10 text-slate-400'}`}
+                  className={`py-3 rounded-xl font-black text-sm transition-all ${gender === 'Male' ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-600/20' : 'text-slate-500 hover:text-slate-300'}`}
                 >
                   ذكر
                 </button>
                 <button
                   type="button"
                   onClick={() => setGender('Female')}
-                  className={`py-3 rounded-xl font-bold transition-all border ${gender === 'Female' ? 'bg-[#1e75b9] border-[#1e75b9] text-white' : 'bg-[#0B0F19]/60 border-white/10 text-slate-400'}`}
+                  className={`py-3 rounded-xl font-black text-sm transition-all ${gender === 'Female' ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-600/20' : 'text-slate-500 hover:text-slate-300'}`}
                 >
                   أنثى
                 </button>
@@ -1295,83 +1510,81 @@ export const WorkspaceLogin = () => {
               <button
                 type="submit"
                 disabled={loading || !fullName || !phoneNumber}
-                className="w-full bg-[#1ed788] hover:bg-[#1bbd77] disabled:opacity-50 text-[#0B0F19] rounded-2xl py-4 font-black text-lg transition-all shadow-[0_0_20px_rgba(30,215,136,0.3)] active:scale-95"
+                className="w-full bg-[#1ed788] hover:bg-[#1bbd77] disabled:opacity-50 text-[#0B0F19] rounded-2xl py-5 font-black text-xl transition-all shadow-[0_20px_40px_rgba(30,215,136,0.2)] active:scale-95 flex items-center justify-center gap-3 group"
               >
-                {loading ? 'جاري التسجيل...' : 'تسجيل وتأكيد'}
-              </button>
-            </div>
-            
-            <div className="text-center mt-6">
-              <button
-                type="button"
-                onClick={() => { setIsSignUp(false); setError(''); }}
-                className="text-slate-400 hover:text-white text-sm font-bold transition-colors"
-              >
-                لديك حساب بالفعل؟ <span className="text-[#1e75b9] underline decoration-2 underline-offset-4">تسجيل الدخول</span>
+                {loading ? <RefreshCw className="animate-spin" size={24} /> : (
+                  <>
+                    <span>تسجيل وتأكيد الحساب</span>
+                    <CheckCircle2 size={24} className="group-hover:scale-110 transition-transform" />
+                  </>
+                )}
               </button>
             </div>
           </form>
         ) : (
-          <form onSubmit={handleLogin} className="space-y-6">
+          <form onSubmit={handleLogin} className="space-y-6 animate-in slide-in-from-bottom-4 duration-500">
             {error && (
-              <div className="bg-rose-500/10 border border-rose-500/20 text-rose-400 px-4 py-3 rounded-xl text-sm font-bold text-center">
+              <div className="bg-rose-500/10 border border-rose-500/20 text-rose-400 px-4 py-3 rounded-xl text-[10px] font-black tracking-widest text-center uppercase">
                 {error}
               </div>
             )}
             
             <div className="space-y-1.5">
-              <label className="text-sm font-bold text-slate-400 block ml-1">كود المستخدم</label>
-              <input
-                type="text"
-                required
-                value={userCode}
-                onChange={(e) => setUserCode(e.target.value)}
-                className="w-full bg-[#0B0F19]/60 border border-white/10 rounded-2xl px-5 py-4 text-white font-bold text-left focus:outline-none focus:border-[#1e75b9] focus:ring-1 focus:ring-[#1e75b9] transition-all"
-                placeholder="مثال: C0001"
-                dir="ltr"
-              />
+              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mr-1">كود المستخدم</label>
+              <div className="relative group">
+                <Lock size={18} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-600 transition-colors group-focus-within:text-indigo-400" />
+                <input
+                  type="text"
+                  required
+                  value={userCode}
+                  onChange={(e) => setUserCode(e.target.value)}
+                  className="w-full h-14 bg-white/5 border border-white/10 rounded-2xl pr-12 pl-5 text-white font-bold text-left focus:outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all placeholder:text-slate-700 uppercase tracking-[0.2em]"
+                  placeholder="C0001"
+                  dir="ltr"
+                />
+              </div>
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-sm font-bold text-slate-400 block ml-1">رقم الهاتف</label>
-              <input
-                type="tel"
-                required
-                value={phoneNumber}
-                onChange={(e) => setPhoneNumber(e.target.value)}
-                className="w-full bg-[#0B0F19]/60 border border-white/10 rounded-2xl px-5 py-4 text-white font-bold text-left focus:outline-none focus:border-[#1e75b9] focus:ring-1 focus:ring-[#1e75b9] transition-all"
-                placeholder="01xxxxxxxxx"
-                dir="ltr"
-              />
+              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mr-1">رقم الهاتف</label>
+              <div className="relative group">
+                <Wind size={18} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-600 transition-colors group-focus-within:text-indigo-400 rotate-90" />
+                <input
+                  type="tel"
+                  required
+                  value={phoneNumber}
+                  onChange={(e) => setPhoneNumber(e.target.value)}
+                  className="w-full h-14 bg-white/5 border border-white/10 rounded-2xl pr-12 pl-5 text-white font-bold text-left focus:outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all placeholder:text-slate-700"
+                  placeholder="01xxxxxxxxx"
+                  dir="ltr"
+                />
+              </div>
             </div>
 
+            <div className="flex flex-col gap-5 mt-8 text-center border-t border-white/5 pt-6">
+              <button
+                type="button"
+                onClick={() => { setIsForgotCode(true); setIsSignUp(false); setError(''); }}
+                className="text-slate-500 hover:text-white text-xs font-black uppercase tracking-widest transition-all hover:scale-105"
+              >
+                نسيت كود الدخول؟ <span className="text-[#f78c2a] underline underline-offset-8 decoration-2 ml-2">استعادة الكود</span>
+              </button>
+            </div>
             <div className="pt-4">
               <button
                 type="submit"
                 disabled={loading || !userCode || !phoneNumber}
-                className="w-full bg-[#1e75b9] hover:bg-[#155a96] disabled:opacity-50 text-white rounded-2xl py-4 flex items-center justify-center gap-2 font-black text-lg transition-all shadow-[0_0_20px_rgba(30,117,185,0.4)] active:scale-95"
+                className="w-full h-16 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 disabled:opacity-50 text-white rounded-2xl flex items-center justify-center gap-3 font-black text-xl transition-all shadow-[0_20px_40px_rgba(79,70,229,0.2)] active:scale-95 group"
               >
-                {loading ? 'جاري التحقق...' : 'بدء الجلسة'}
+                {loading ? <RefreshCw className="animate-spin" /> : (
+                  <>
+                    <span>بدء الجلسة الآن</span>
+                    <ArrowRight size={22} className="group-hover:translate-x-[-4px] transition-transform" />
+                  </>
+                )}
               </button>
             </div>
 
-            <div className="flex flex-col gap-4 mt-6 text-center">
-              <button
-                type="button"
-                onClick={() => { setIsForgotCode(true); setIsSignUp(false); setError(''); }}
-                className="text-slate-400 hover:text-white text-sm font-bold transition-colors"
-              >
-                نسيت كود الدخول؟ <span className="text-[#f78c2a] underline decoration-2 underline-offset-4">استعادة الكود</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => { setIsSignUp(true); setIsForgotCode(false); setError(''); }}
-                className="text-slate-400 hover:text-white text-sm font-bold transition-colors"
-              >
-                أول مرة تزورنا؟ <span className="text-[#1ed788] underline decoration-2 underline-offset-4">أنشئ حساباً مجانياً</span>
-              </button>
-            </div>
           </form>
         )}
       </div>
@@ -1390,48 +1603,50 @@ export const WorkspaceLogin = () => {
         isOpen={showSuccessModal && !!regSuccessData}
         onClose={() => setShowSuccessModal(false)}
         title="تم التسجيل بنجاح! 🎉"
-        className="max-w-sm text-center"
+        className="max-w-md p-0 overflow-hidden bg-transparent border-none shadow-none"
       >
-        <div className="relative space-y-6 pb-2">
-          <div className="w-20 h-20 bg-emerald-500/20 rounded-full flex items-center justify-center mx-auto ring-4 ring-emerald-500/10 scale-110 animate-pulse mb-8 mt-2">
-            <CheckCircle2 size={40} className="text-[#1ed788]" />
+        <div className="bg-[#0B0F19] rounded-[3.5rem] p-10 text-center space-y-10 border border-white/10 relative overflow-hidden shadow-2xl scale-110">
+          {/* Animated Background Orbs */}
+          <div className="absolute -top-24 -right-24 w-64 h-64 bg-emerald-500/10 rounded-full blur-[80px] -z-10 animate-pulse" />
+          <div className="absolute -bottom-24 -left-24 w-64 h-64 bg-indigo-500/10 rounded-full blur-[80px] -z-10" />
+          
+          <div className="w-24 h-24 bg-emerald-500/10 rounded-3xl flex items-center justify-center mx-auto text-[#1ed788] animate-bounce shadow-inner border border-emerald-500/20">
+             <CheckCircle2 size={48} />
           </div>
 
-          <div className="space-y-1">
-            <p className="text-slate-500 text-sm font-bold font-['Cairo']">
-              أهلاً بك <span className="text-indigo-600 font-black">{regSuccessData?.name}</span> في عائلة Campus
-            </p>
+          <div className="space-y-3">
+             <h2 className="text-4xl font-black text-white tracking-tight leading-tight">مرحباً بك في Cloud!</h2>
+             <p className="text-slate-400 font-bold text-lg px-8">
+               أهلاً بك <span className="text-emerald-400">{regSuccessData?.name}</span>. لقد تم إنشاء حسابك بنجاح.
+             </p>
           </div>
 
-          <div className="bg-slate-50 border border-slate-100 rounded-3xl p-6 space-y-3 shadow-inner">
-            <p className="text-[10px] font-black text-[#1e75b9] uppercase tracking-widest">كود الدخول الخاص بك</p>
-            <div className="text-5xl font-black text-slate-900 font-mono tracking-tighter">
-              {regSuccessData?.code}
-            </div>
+          <div className="relative group p-10 bg-white/5 backdrop-blur-xl rounded-[2.5rem] border border-white/10 overflow-hidden">
+             <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/5 rounded-full blur-3xl -z-10" />
+             <div className="space-y-4">
+                <p className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.4em] mb-2">كود الدخول الخاص بك</p>
+                <div className="bg-black/40 py-8 px-6 rounded-[2rem] border-2 border-dashed border-indigo-500/30">
+                   <span className="text-6xl font-black text-white font-mono tracking-[0.2em]">{regSuccessData?.code}</span>
+                </div>
+                <div className="flex items-center gap-4 text-right bg-indigo-500/10 p-4 rounded-2xl border border-indigo-500/20">
+                   <Info size={20} className="text-indigo-400 shrink-0" />
+                   <p className="text-[11px] font-black text-slate-300 leading-relaxed">
+                     يرجى أخذ لقطة شاشة (Screenshot) لهذا الكود. ستستخدمه في كل مرة تدخل فيها مساحة العمل.
+                   </p>
+                </div>
+             </div>
           </div>
 
-          <div className="space-y-6">
-            <div className="bg-indigo-50/50 border border-indigo-100/50 py-4 px-6 rounded-2xl flex items-center gap-4 text-right">
-              <div className="p-2 bg-indigo-100 text-indigo-600 rounded-lg shrink-0">
-                <Info size={18} />
-              </div>
-              <p className="text-[11px] text-slate-600 font-bold font-['Cairo'] leading-relaxed">
-                يرجى أخذ لقطة شاشة (Screenshot) لهذا الكود لاستخدامه عند الحضور.
-                {regSuccessData?.email && <span className="block text-emerald-600 mt-1">تم إرسال نسخة لبريدك: {regSuccessData.email}</span>}
-              </p>
-            </div>
-
-            <Button
-              onClick={() => {
-                setShowSuccessModal(false);
-                setUserCode(regSuccessData?.code || '');
-                setIsSignUp(false);
-              }}
-              className="w-full h-16 bg-slate-900 text-white rounded-2xl font-black text-lg transition-all active:scale-95 shadow-xl shadow-slate-200"
-            >
-              فهمت، ابدأ الآن
-            </Button>
-          </div>
+          <button
+            onClick={() => {
+              setShowSuccessModal(false);
+              setUserCode(regSuccessData?.code || '');
+              setIsSignUp(false);
+            }}
+            className="w-full h-20 bg-white text-[#0B0F19] rounded-[2rem] font-black text-2xl hover:bg-emerald-400 transition-all shadow-2xl active:scale-95 group"
+          >
+            ابدأ رحلتك الآن
+          </button>
         </div>
       </Modal>
     </div>

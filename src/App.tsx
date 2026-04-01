@@ -23,6 +23,7 @@ import { ActivitiesPage } from './pages/ActivitiesPage';
 import { RoomsStatus } from './pages/RoomsStatus';
 import { RoomsKiosk } from './pages/RoomsKiosk';
 import { RoomsDatabase } from './pages/RoomsDatabase';
+import { KitchenKiosk } from './pages/KitchenKiosk';
 
 const DashboardLayout = () => {
   const [branches, setBranches] = useState<Campus[]>([]);
@@ -183,6 +184,7 @@ export const App = () => {
       <Route path="/" element={<WorkspaceLogin />} />
       <Route path="/workspace" element={<WorkspaceLogin />} />
       <Route path="/rooms-kiosk" element={<RoomsKiosk />} />
+      <Route path="/kitchen-kiosk" element={<KitchenKiosk />} />
       <Route path="/login" element={<LoginPage />} />
       
       <Route 

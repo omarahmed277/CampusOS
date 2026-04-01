@@ -26,6 +26,24 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
   const [manualCode, setManualCode] = useState('');
   const [startingSession, setStartingSession] = useState(false);
 
+  // Helper to format UTC ISO to Cairo Local YYYY-MM-DDTHH:mm
+  const toCairoInput = (iso?: string | Date) => {
+    if (!iso) return '';
+    try {
+      const date = typeof iso === 'string' ? new Date(iso) : iso;
+      // 'sv-SE' gives YYYY-MM-DD HH:mm:ss format
+      return date.toLocaleString('sv-SE', { timeZone: 'Africa/Cairo' }).replace(' ', 'T').slice(0, 16);
+    } catch (e) {
+      return '';
+    }
+  };
+
+  // Helper to convert local input back to UTC ISO
+  const fromCairoInput = (localStr: string) => {
+    if (!localStr) return null;
+    return new Date(localStr).toISOString();
+  };
+
   useEffect(() => {
     if (!branchId) return;
     
@@ -129,8 +147,8 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
       totalAmount,
       diffMinutes,
       usedHours,
-      startTime: startTime.toISOString(),
-      endTime,
+      startTime: session.start_time,
+      endTime: endTime.toISOString(),
       isSubscribed,
       subscriptionId: activeSub?.id,
       remainingSubHours: remainingSubHours - usedHours,
@@ -142,10 +160,13 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
   const handleUpdateTime = (field: 'startTime' | 'endTime', value: string) => {
     if (!editingBill) return;
     
-    const startTime = field === 'startTime' ? new Date(value) : new Date(editingBill.startTime);
-    const endTime = field === 'endTime' ? new Date(value) : new Date(editingBill.endTime);
+    // Convert local input strings directly to ISO
+    const startTime = field === 'startTime' ? fromCairoInput(value) : editingBill.startTime;
+    const endTime = field === 'endTime' ? fromCairoInput(value) : editingBill.endTime;
     
-    const diffMs = endTime.getTime() - startTime.getTime();
+    if (!startTime || !endTime) return;
+
+    const diffMs = new Date(endTime).getTime() - new Date(startTime).getTime();
     const diffMinutes = Math.max(1, Math.ceil(diffMs / 60000));
     const usedHours = parseFloat((diffMinutes / 60).toFixed(2));
 
@@ -163,8 +184,8 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
 
     setEditingBill({
        ...editingBill,
-       startTime: startTime.toISOString(),
-       endTime: endTime,
+       startTime,
+       endTime,
        diffMinutes,
        usedHours,
        workspaceAmount,
@@ -218,7 +239,7 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
         .update({
           status: 'completed',
           start_time: editingBill.startTime,
-          end_time: editingBill.endTime.toISOString(),
+          end_time: editingBill.endTime,
           total_minutes: Number(editingBill.diffMinutes) || 0,
           catering_amount: Number(editingBill.cateringAmount) || 0,
           orders: editingBill.orders || [],
@@ -343,76 +364,84 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
     <div className="space-y-12 animate-in fade-in duration-700 mt-6 pb-20">
 
       {/* Manual Entry Section */}
-      <div className="glass rounded-[3rem] p-8 overflow-hidden relative group">
+      <div className="glass rounded-[2rem] md:rounded-[3rem] p-6 md:p-8 overflow-hidden relative group">
         <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/5 rounded-full blur-[80px] -z-10" />
-        <div className="flex flex-col md:flex-row items-center gap-6">
-          <div className="flex-1 space-y-2">
-            <h2 className="text-2xl font-black text-slate-800">بدء جلسة يدوياً</h2>
-            <p className="text-slate-500 font-bold text-sm">أدخل كود المستخدم (مثال: A001) أو كود الزائر (مثال: NA1)</p>
+        <div className="flex flex-col lg:flex-row items-center gap-6 md:gap-8">
+          <div className="flex-1 text-center lg:text-right space-y-2">
+            <h2 className="text-xl md:text-2xl font-black text-slate-800">بدء جلسة يدوياً</h2>
+            <p className="text-slate-400 font-bold text-xs md:text-sm">أدخل كود المستخدم (مثال: A001) أو كود الزائر (مثال: NA1)</p>
           </div>
-          <div className="flex w-full md:w-auto items-center gap-4">
-            <input 
-              type="text"
-              value={manualCode}
-              onChange={(e) => setManualCode(e.target.value)}
-              placeholder="A001 , NA1 ..."
-              className="flex-1 md:w-64 h-16 px-6 rounded-2xl bg-white border-2 border-slate-100 font-black text-xl text-center focus:border-indigo-400 focus:ring-4 focus:ring-indigo-100 transition-all outline-none uppercase"
-              onKeyDown={(e) => e.key === 'Enter' && handleStartManualSession()}
-            />
+          <div className="flex flex-col sm:flex-row w-full lg:w-auto items-center gap-4">
+            <div className="relative w-full sm:w-64 group/input">
+              <input 
+                type="text"
+                value={manualCode}
+                onChange={(e) => setManualCode(e.target.value)}
+                placeholder="A001 , NA1 ..."
+                className="w-full h-14 md:h-16 px-6 rounded-2xl bg-white border-2 border-slate-100 font-black text-lg md:text-xl text-center focus:border-indigo-400 focus:ring-4 focus:ring-indigo-100 transition-all outline-none uppercase placeholder:text-slate-200"
+                onKeyDown={(e) => e.key === 'Enter' && handleStartManualSession()}
+              />
+            </div>
             <button 
               onClick={handleStartManualSession}
               disabled={startingSession || !manualCode.trim()}
-              className="h-16 px-10 bg-indigo-600 text-white rounded-2xl font-black text-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-xl shadow-indigo-200 transition-all hover:-translate-y-1 active:scale-95 flex items-center gap-3 whitespace-nowrap"
+              className="w-full sm:w-auto h-14 md:h-16 px-8 bg-indigo-600 text-white rounded-2xl font-black text-sm md:text-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-xl shadow-indigo-200 transition-all hover:scale-[1.02] active:scale-95 flex items-center justify-center gap-3 whitespace-nowrap"
             >
-              {startingSession ? <RefreshCw className="animate-spin" /> : <Clock />}
-              بدء الجلسة
+              {startingSession ? <RefreshCw className="animate-spin" size={20} /> : <Clock size={20} />}
+              <span>بدء الجلسة</span>
             </button>
           </div>
         </div>
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="glass rounded-[2rem] p-6 relative overflow-hidden group">
+      <div className="grid grid-cols-2 lg:grid-cols-2 gap-4 md:gap-6">
+        <div className="glass rounded-[1.5rem] md:rounded-[2rem] p-4 md:p-6 relative overflow-hidden group">
           <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/10 rounded-full blur-[40px]" />
-          <div className="flex items-center gap-6 relative z-10">
-            <div className="bg-indigo-500/20 w-16 h-16 rounded-2xl flex items-center justify-center">
-              <Clock size={32} className="text-indigo-500" />
+          <div className="flex items-center gap-4 md:gap-6 relative z-10">
+            <div className="bg-indigo-500/20 w-12 h-12 md:w-16 md:h-16 rounded-xl md:rounded-2xl flex items-center justify-center shrink-0">
+              <Clock size={24} className="text-indigo-500 md:hidden" />
+              <Clock size={32} className="text-indigo-500 hidden md:block" />
             </div>
             <div>
-              <p className="text-slate-500 font-bold mb-1">جلسات نشطة</p>
-              <h3 className="text-4xl font-black text-slate-900">{activeCount}</h3>
+              <p className="text-slate-400 font-black text-[10px] md:text-sm mb-0.5 uppercase tracking-widest">جلسات نشطة</p>
+              <h3 className="text-2xl md:text-4xl font-black text-slate-900">{activeCount}</h3>
             </div>
           </div>
         </div>
 
-        <div className="glass rounded-[2rem] p-6 relative overflow-hidden group">
+        <div className="glass rounded-[1.5rem] md:rounded-[2rem] p-4 md:p-6 relative overflow-hidden group">
           <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/10 rounded-full blur-[40px]" />
-          <div className="flex items-center gap-6 relative z-10">
-            <div className="bg-amber-500/20 w-16 h-16 rounded-2xl flex items-center justify-center">
-              <AlertCircle size={32} className="text-amber-500" />
+          <div className="flex items-center gap-4 md:gap-6 relative z-10">
+            <div className="bg-amber-500/20 w-12 h-12 md:w-16 md:h-16 rounded-xl md:rounded-2xl flex items-center justify-center shrink-0">
+              <AlertCircle size={24} className="text-amber-500 md:hidden" />
+              <AlertCircle size={32} className="text-amber-500 hidden md:block" />
             </div>
             <div>
-              <p className="text-slate-500 font-bold mb-1">طلبات خروج معلّقة</p>
-              <h3 className="text-4xl font-black text-amber-600">{requestedCount}</h3>
+              <p className="text-slate-400 font-black text-[10px] md:text-sm mb-0.5 uppercase tracking-widest">طلبات خروج</p>
+              <h3 className="text-2xl md:text-4xl font-black text-amber-600">{requestedCount}</h3>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Main Content */}
-      <div className="glass rounded-[3rem] p-8">
-        <div className="flex justify-between items-center mb-8">
-          <h2 className="text-2xl font-black text-slate-900">إدارة الجلسات الحالية</h2>
+      <div className="glass rounded-[2.5rem] md:rounded-[3rem] p-6 md:p-8">
+        <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mb-8">
+          <div className="text-center sm:text-right">
+            <h2 className="text-xl md:text-2xl font-black text-slate-900">إدارة الجلسات الحالية</h2>
+            <p className="text-[10px] md:text-xs font-black text-slate-400 uppercase tracking-widest mt-1">Live Workspace Monitor</p>
+          </div>
           <button 
             onClick={fetchSessions}
-            className="p-3 text-indigo-500 hover:bg-indigo-50 rounded-xl transition-colors"
+            className="p-3 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 rounded-2xl transition-all active:scale-95 flex items-center gap-2"
           >
-            <RefreshCw size={24} className={loading ? 'animate-spin' : ''} />
+            <span className="text-xs font-black sm:hidden tracking-wider">تحديث البيانات</span>
+            <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
           </button>
         </div>
 
-          <div className="overflow-x-auto custom-scrollbar">
+        {/* Desktop Table View */}
+        <div className="hidden lg:block overflow-x-auto custom-scrollbar">
             <table className="w-full text-right min-w-[800px]">
               <thead>
                 <tr className="border-b border-indigo-100 bg-indigo-50/30">
@@ -531,6 +560,103 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
               </tbody>
             </table>
           </div>
+
+          {/* Mobile Card View */}
+          <div className="lg:hidden space-y-4">
+            {sessions.map((session) => {
+              const diffMs = now - new Date(session.start_time).getTime();
+              const totalMins = Math.floor(diffMs / 60000);
+              const hrs = Math.floor(totalMins / 60);
+              const mins = totalMins % 60;
+              
+              const activeSub = session.customers?.subscriptions?.find((s: any) => 
+                s.status === 'Active' && 
+                new Date(s.end_date) >= new Date() &&
+                s.used_hours < s.total_hours
+              );
+
+              return (
+                <div key={session.id} className={`p-5 rounded-3xl border-2 transition-all duration-300 ${session.status === 'checkout_requested' ? 'bg-amber-50/30 border-amber-200' : 'bg-white border-slate-100'}`}>
+                  <div className="flex justify-between items-start mb-4">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-white ${session.status === 'checkout_requested' ? 'bg-amber-500 shadow-lg shadow-amber-500/20' : 'bg-indigo-600 shadow-lg shadow-indigo-600/20'}`}>
+                        {session.status === 'checkout_requested' ? <AlertCircle size={24} /> : <Users2 size={24} />}
+                      </div>
+                      <div className="text-right">
+                        <div className="font-black text-slate-900 text-base leading-tight">
+                          {session.customers?.full_name || (session.user_code.startsWith('NA') ? `زائر (${session.user_code})` : 'مستخدم مجهول')}
+                        </div>
+                        <div className="text-[10px] font-black text-slate-400 mt-0.5">{session.user_code} • {session.phone_number}</div>
+                      </div>
+                    </div>
+                    {session.status === 'checkout_requested' && (
+                       <span className="flex h-2 w-2 rounded-full bg-amber-500 animate-ping" />
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 mb-6">
+                    <div className="bg-slate-50 rounded-2xl p-3 border border-slate-100/50">
+                       <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1 text-right">وقت البدء</p>
+                       <p className="font-black text-slate-900 text-sm dir-ltr text-right">
+                         {new Date(session.start_time).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}
+                       </p>
+                    </div>
+                    <div className="bg-indigo-50/50 rounded-2xl p-3 border border-indigo-100/30">
+                       <p className="text-[9px] font-black text-indigo-400 uppercase tracking-widest mb-1 text-right">مدة الجلسة</p>
+                       <div className="font-black text-indigo-600 text-sm flex items-center justify-end gap-1.5">
+                          <span>{hrs}س {mins}د</span>
+                          <Clock size={12} />
+                       </div>
+                    </div>
+                  </div>
+
+                  {activeSub && (
+                    <div className="bg-emerald-50 rounded-2xl p-3 border border-emerald-100 mb-4 flex justify-between items-center">
+                       <div className="flex items-center gap-1.5 text-emerald-600">
+                          <Sparkles size={14} className="animate-pulse" />
+                          <span className="text-[10px] font-black uppercase">Subscribed</span>
+                       </div>
+                       <p className="text-[10px] font-black text-emerald-700">Left: {(activeSub.total_hours - activeSub.used_hours).toFixed(1)}H</p>
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between gap-4 pt-4 border-t border-slate-100">
+                    <div className="text-right">
+                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">الكافتيريا</p>
+                      <p className="font-black text-slate-900 text-lg">{session.catering_amount || 0} <span className="text-[10px] opacity-40">EGP</span></p>
+                    </div>
+                    <div className="flex flex-col gap-2 flex-1">
+                      <button
+                        onClick={() => handlePrepareCheckout(session)}
+                        className={`w-full py-3 px-4 rounded-2xl text-white font-black text-sm transition-all shadow-lg active:scale-95 ${
+                          session.status === 'checkout_requested' 
+                            ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/20' 
+                            : 'bg-slate-900 hover:bg-black shadow-slate-900/20'
+                        }`}
+                      >
+                        إنهاء و محاسبة
+                      </button>
+                      {session.status === 'checkout_requested' && (
+                        <button
+                          onClick={() => handleCancelCheckoutRequest(session.id)}
+                          className="w-full py-2 text-rose-500 bg-rose-50 rounded-xl text-[10px] font-black transition-colors"
+                        >
+                          إلغاء طلب الخروج
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+
+            {sessions.length === 0 && !loading && (
+              <div className="py-20 text-center glass rounded-[2rem] border-2 border-dashed border-slate-100">
+                <Users2 size={48} className="mx-auto text-slate-200 mb-4" />
+                <p className="font-black text-slate-400">لا يوجد جلسات نشطة</p>
+              </div>
+            )}
+          </div>
       </div>
       
       {/* Bill Adjustment Modal */}
@@ -563,43 +689,48 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
               )}
 
               {/* Time Control */}
-              <div className="grid grid-cols-2 gap-4">
-                 <div className="bg-slate-50 p-4 rounded-[2rem] border border-slate-100">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                 <div className="bg-slate-50 p-4 rounded-[2rem] border border-slate-100 relative group/start">
                     <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 text-right">وقت الدخول</label>
-                    <input 
-                      type="datetime-local" 
-                      value={editingBill.startTime.slice(0, 16)} 
-                      onChange={(e) => handleUpdateTime('startTime', e.target.value)}
-                      className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-black outline-none focus:border-indigo-400 text-right"
-                    />
+                    <div className="relative">
+                      <input 
+                        type="datetime-local" 
+                        value={toCairoInput(editingBill.startTime)} 
+                        onChange={(e) => handleUpdateTime('startTime', e.target.value)}
+                        className="w-full h-12 bg-white border border-slate-200 rounded-xl px-4 text-xs md:text-sm font-black outline-none focus:border-indigo-400 transition-all text-right [color-scheme:light]"
+                      />
+                    </div>
                  </div>
-                 <div className="bg-slate-50 p-4 rounded-[2rem] border border-slate-100">
+                 <div className="bg-slate-50 p-4 rounded-[2rem] border border-slate-100 relative group/end">
                     <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 text-right">وقت الخروج</label>
-                    <input 
-                      type="datetime-local" 
-                      value={new Date(editingBill.endTime).toISOString().slice(0, 16)} 
-                      onChange={(e) => handleUpdateTime('endTime', e.target.value)}
-                      className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-black outline-none focus:border-indigo-400 text-right"
-                    />
+                    <div className="relative">
+                      <input 
+                        type="datetime-local" 
+                        value={toCairoInput(editingBill.endTime)} 
+                        onChange={(e) => handleUpdateTime('endTime', e.target.value)}
+                        className="w-full h-12 bg-white border border-slate-200 rounded-xl px-4 text-xs md:text-sm font-black outline-none focus:border-indigo-400 transition-all text-right [color-scheme:light]"
+                      />
+                    </div>
                  </div>
               </div>
 
               {/* User Info */}
-              <div className="bg-slate-50 p-6 rounded-3xl flex justify-between items-center border border-slate-100">
-                <div className="text-right">
-                  <p className="text-slate-400 text-xs font-black uppercase mb-1">العميل</p>
-                  <p className="font-black text-slate-900">{editingBill.customers?.full_name || editingBill.user_code}</p>
+              <div className="bg-slate-50 p-5 md:p-6 rounded-[2.5rem] grid grid-cols-2 md:grid-cols-3 gap-6 border border-slate-100 relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/5 rounded-full blur-3xl -z-10" />
+                <div className="text-right col-span-2 md:col-span-1">
+                  <p className="text-slate-400 text-[9px] font-black uppercase mb-1 tracking-widest">العميل</p>
+                  <p className="font-black text-slate-900 text-lg md:text-xl truncate">{editingBill.customers?.full_name || editingBill.user_code}</p>
                 </div>
                 <div className="text-right">
-                    <p className="text-slate-400 text-xs font-black uppercase mb-1">وقت الجلسة</p>
-                    <p className="font-black text-indigo-600">
-                       {Math.floor(editingBill.diffMinutes / 60)}h {editingBill.diffMinutes % 60}m
-                    </p>
+                    <p className="text-slate-400 text-[9px] font-black uppercase mb-1 tracking-widest">وقت الجلسة</p>
+                    <div className="flex items-center justify-end gap-1.5 font-black text-indigo-600">
+                       <span className="text-base md:text-lg">{Math.floor(editingBill.diffMinutes / 60)}h {editingBill.diffMinutes % 60}m</span>
+                       <Clock size={14} />
+                    </div>
                 </div>
                 <div className="text-right">
-                    <p className="text-slate-400 text-xs font-black uppercase mb-1">مبلغ المكان</p>
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] font-black opacity-30">EGP</span>
+                    <p className="text-slate-400 text-[9px] font-black uppercase mb-1 tracking-widest text-[#f78c2a]">مبلـغ المكان</p>
+                    <div className="flex items-center justify-end gap-2">
                       <input 
                         type="number" 
                         value={editingBill.workspaceAmount} 
@@ -607,7 +738,7 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
                           const val = parseFloat(e.target.value) || 0;
                           setEditingBill({...editingBill, workspaceAmount: val, totalAmount: parseFloat((val + editingBill.cateringAmount).toFixed(2))});
                         }}
-                        className={`w-20 text-center font-black bg-white border border-slate-200 rounded-lg px-2 py-1 focus:ring-2 ring-indigo-100 outline-none ${editingBill.isSubscribed ? 'opacity-30' : ''}`} 
+                        className={`w-24 h-10 text-center font-black bg-white border-2 border-slate-200 rounded-xl focus:border-[#f78c2a] focus:ring-4 focus:ring-[#f78c2a]/10 outline-none text-sm transition-all ${editingBill.isSubscribed ? 'opacity-30' : ''}`} 
                         disabled={editingBill.isSubscribed}
                       />
                     </div>
@@ -621,35 +752,40 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
                   <button onClick={handleAddBillItem} className="text-[10px] font-black bg-indigo-50 text-indigo-600 px-3 py-1 rounded-lg hover:bg-indigo-100 transition-colors">إضافة صنف +</button>
                 </div>
                 
-                <div className="space-y-2">
+                <div className="space-y-3">
                   {editingBill.orders.map((o: any, idx: number) => (
-                    <div key={idx} className="grid grid-cols-12 gap-3 items-center bg-white p-3 border border-slate-100 rounded-2xl group hover:border-indigo-200 transition-all">
-                       <input 
-                         className="col-span-4 font-bold text-sm bg-slate-50 border-none rounded-xl px-3 py-2 outline-none" 
-                         value={o.name} 
-                         onChange={(e) => handleUpdateBillItem(idx, 'name', e.target.value)}
-                       />
-                       <div className="col-span-3 flex items-center gap-2">
-                         <span className="text-[10px] text-slate-400 font-bold">السعر</span>
+                    <div key={idx} className="flex flex-col sm:grid sm:grid-cols-12 gap-4 items-center bg-white p-4 border border-slate-100 rounded-[2rem] group hover:border-indigo-200 transition-all shadow-sm">
+                       <div className="w-full sm:col-span-5 text-right font-black text-slate-800">
+                         <p className="text-[9px] text-slate-400 uppercase tracking-widest mb-1">اسم الصنف</p>
+                         <input 
+                           className="w-full bg-slate-50 border-none rounded-xl px-4 py-2 outline-none text-sm" 
+                           value={o.name} 
+                           onChange={(e) => handleUpdateBillItem(idx, 'name', e.target.value)}
+                         />
+                       </div>
+                       <div className="w-full sm:col-span-3 text-right">
+                         <p className="text-[9px] text-slate-400 uppercase tracking-widest mb-1">السعـر</p>
                          <input 
                            type="number" 
-                           className="w-full text-center font-black text-emerald-600 bg-emerald-50/50 border-none rounded-xl px-2 py-2 outline-none" 
+                           className="w-full text-center font-black text-emerald-600 bg-emerald-50/50 border-none rounded-xl px-3 py-2 outline-none text-sm" 
                            value={o.price} 
                            onChange={(e) => handleUpdateBillItem(idx, 'price', e.target.value)}
                          />
                        </div>
-                       <div className="col-span-3 flex items-center gap-2">
-                         <span className="text-[10px] text-slate-400 font-bold">كمية</span>
+                       <div className="w-full sm:col-span-3 text-right">
+                         <p className="text-[9px] text-slate-400 uppercase tracking-widest mb-1">الكمية</p>
                          <input 
                            type="number" 
-                           className="w-full text-center font-black text-indigo-600 bg-indigo-50/50 border-none rounded-xl px-2 py-2 outline-none" 
+                           className="w-full text-center font-black text-indigo-600 bg-indigo-50/50 border-none rounded-xl px-3 py-2 outline-none text-sm" 
                            value={o.quantity || 1} 
                            onChange={(e) => handleUpdateBillItem(idx, 'quantity', e.target.value)}
                          />
                        </div>
-                       <button onClick={() => handleRemoveBillItem(idx)} className="col-span-2 text-rose-400 hover:text-rose-600 p-2 opacity-0 group-hover:opacity-100 transition-all">
-                          <X size={18} />
-                       </button>
+                       <div className="w-full sm:col-span-1 flex justify-center sm:justify-end">
+                         <button onClick={() => handleRemoveBillItem(idx)} className="text-rose-400 hover:text-rose-600 p-2 sm:opacity-0 group-hover:opacity-100 transition-all hover:bg-rose-50 rounded-lg">
+                            <X size={20} />
+                         </button>
+                       </div>
                     </div>
                   ))}
                   {editingBill.orders.length === 0 && (
@@ -658,16 +794,18 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
                 </div>
               </div>
 
-              {/* Footer Summary */}
-              <div className="mt-8 pt-6 border-t border-slate-100">
-                 <div className="flex justify-between items-center mb-6">
-                    <div className="text-right">
-                      <p className="text-2xl font-black text-emerald-600">{editingBill.totalAmount} <span className="text-xs">EGP</span></p>
-                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">الإجمالي النهائي</p>
+              <div className="mt-8 pt-8 border-t border-slate-100">
+                 <div className="flex flex-col sm:flex-row justify-between items-center gap-8 text-center sm:text-right">
+                    <div>
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] mb-1">الإجمالي المستحق</p>
+                      <div className="flex items-center justify-center sm:justify-end gap-2">
+                        <span className="text-5xl font-black text-emerald-600">{editingBill.totalAmount}</span>
+                        <span className="text-sm font-black text-slate-300">EGP</span>
+                      </div>
                     </div>
-                    <div className="flex gap-4">
-                      <button onClick={() => setEditingBill(null)} className="px-6 py-3 rounded-2xl bg-slate-100 text-slate-600 font-black text-sm hover:bg-slate-200 transition-all">إلغاء</button>
-                      <button onClick={handleAcceptCheckout} className="px-10 py-3 rounded-2xl bg-emerald-600 text-white font-black text-sm shadow-xl shadow-emerald-100 hover:bg-emerald-700 hover:-translate-y-1 transition-all">تأكيد ومحاسبة</button>
+                    <div className="flex flex-col sm:flex-row gap-4 w-full sm:w-auto">
+                      <button onClick={() => setEditingBill(null)} className="w-full sm:w-auto px-8 py-5 rounded-[1.5rem] bg-slate-50 text-slate-500 font-black text-sm hover:bg-slate-100 transition-all active:scale-95">تراجـع</button>
+                      <button onClick={handleAcceptCheckout} className="w-full sm:w-auto px-12 py-5 rounded-[1.5rem] bg-emerald-600 text-white font-black text-sm shadow-2xl shadow-emerald-200 hover:bg-emerald-700 hover:-translate-y-1 transition-all active:scale-95">تأكيد ومحاسبة</button>
                     </div>
                  </div>
               </div>
@@ -683,70 +821,85 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
         className="max-w-md"
       >
         {checkoutBill && (
-            <div className="space-y-8">
-              <div className="bg-slate-50/80 rounded-[2.5rem] p-8 space-y-6 relative overflow-hidden border border-slate-100">
+            <div className="space-y-6 md:space-y-8">
+              <div className="bg-slate-50/80 rounded-[2.5rem] p-6 md:p-8 space-y-6 relative overflow-hidden border border-slate-100">
                 <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/5 rounded-full blur-3xl -z-10" />
                 
                 <div className="border-b-2 border-dashed border-slate-200 pb-6 text-center">
-                  <p className="text-slate-400 text-sm font-black mb-2 uppercase tracking-widest">Client Name</p>
-                  <p className="text-2xl font-black text-slate-900">{checkoutBill.customers?.full_name || (checkoutBill.user_code.startsWith('NA') ? `Guest (${checkoutBill.user_code})` : 'Unknown')}</p>
-                  <p className="text-lg font-black text-indigo-600 bg-white inline-block px-4 py-1 rounded-xl shadow-sm border border-indigo-50 mt-3">{checkoutBill.user_code}</p>
+                  <p className="text-slate-400 text-[10px] md:text-xs font-black mb-2 uppercase tracking-widest">Client Name</p>
+                  <p className="text-xl md:text-2xl font-black text-slate-900 leading-tight">
+                    {checkoutBill.customers?.full_name || (checkoutBill.user_code.startsWith('NA') ? `Guest (${checkoutBill.user_code})` : 'Unknown')}
+                  </p>
+                  <div className="mt-3">
+                    <p className="text-sm md:text-lg font-black text-indigo-600 bg-white inline-block px-4 py-1.5 rounded-xl shadow-sm border border-indigo-50 font-mono tracking-wider">{checkoutBill.user_code}</p>
+                  </div>
                 </div>
                 
-                <div className="space-y-4 font-bold text-slate-600">
-                  <div className="flex justify-between items-center bg-white/50 p-4 rounded-2xl border border-white">
-                    <span className="text-sm">وقت الاستخدام:</span>
-                    <span className="text-slate-900 mt-1 font-black">
+                <div className="space-y-3 font-black text-slate-600">
+                  <div className="flex justify-between items-center bg-white/50 p-4 rounded-xl border border-white shadow-sm">
+                    <span className="text-[10px] uppercase tracking-wider text-slate-400">وقت الاستخدام</span>
+                    <span className="text-slate-900 text-sm md:text-base">
                        {Math.floor(checkoutBill.diffMinutes / 60)}h {checkoutBill.diffMinutes % 60}m
                     </span>
                   </div>
                   
-                  <div className="flex justify-between items-center bg-white/50 p-4 rounded-2xl border border-white">
-                    <span className="text-sm">قيمة مساحة العمل (10 ج/س):</span>
-                    <span className={`font-black ${checkoutBill.isSubscribed ? 'text-indigo-600' : 'text-slate-900'}`}>
+                  <div className="flex justify-between items-center bg-white/50 p-4 rounded-xl border border-white shadow-sm">
+                    <span className="text-[10px] uppercase tracking-wider text-slate-400">تكلفة الاستخدام</span>
+                    <span className={`text-sm md:text-base ${checkoutBill.isSubscribed ? 'text-indigo-600' : 'text-slate-900'}`}>
                        {checkoutBill.isSubscribed ? '✓ اشتراك ساعات' : `${checkoutBill.workspaceAmount} EGP`}
                     </span>
                   </div>
 
                   {checkoutBill.isSubscribed && (
-                    <div className="bg-indigo-900 text-white p-6 rounded-[2rem] shadow-lg relative overflow-hidden group">
-                      <div className="absolute top-0 right-0 w-full h-full bg-gradient-to-br from-white/10 to-transparent pointer-events-none" />
+                    <div className="bg-indigo-900 text-white p-6 rounded-[2rem] shadow-xl relative overflow-hidden animate-in zoom-in-95 duration-500">
+                      <div className="absolute top-0 right-0 w-full h-full bg-gradient-to-br from-indigo-400/20 to-transparent -z-10" />
                       <div className="flex justify-between items-center relative z-10">
                         <div className="text-left">
-                          <p className="text-2xl font-black">{checkoutBill.remainingSubHours.toFixed(1)} <span className="text-[10px] opacity-40 uppercase">Hours Lasted</span></p>
-                          <p className="text-[8px] font-black text-indigo-300 uppercase tracking-widest mt-1">Expire Date: {new Date(checkoutBill.subEndDate).toLocaleDateString('ar-EG')}</p>
+                          <p className="text-xl md:text-2xl font-black">
+                            {checkoutBill.remainingSubHours.toFixed(1)} 
+                            <span className="text-[8px] md:text-[10px] opacity-40 uppercase ml-1">H Left</span>
+                          </p>
+                          <p className="text-[8px] font-black text-indigo-300 uppercase tracking-widest mt-1">
+                            Expires: {new Date(checkoutBill.subEndDate).toLocaleDateString('ar-EG')}
+                          </p>
                         </div>
                         <div className="text-right">
-                          <p className="text-[10px] font-black text-indigo-200 uppercase tracking-widest mb-1">Subscription Summary</p>
-                          <p className="text-sm font-black whitespace-nowrap">{(Number(checkoutBill.usedHours) || 0).toFixed(2)}h used in this session</p>
+                          <p className="text-[9px] font-black text-indigo-400 uppercase tracking-widest mb-1">Subscription</p>
+                          <p className="text-[11px] md:text-sm font-black text-indigo-100">{(Number(checkoutBill.usedHours) || 0).toFixed(2)}h used</p>
                         </div>
                       </div>
                     </div>
                   )}
                   
-                  <div className="flex justify-between items-center bg-white/50 p-4 rounded-2xl border border-white">
-                    <span className="text-sm">إجمالي طلبات المتجر:</span>
-                    <span className="text-slate-900 font-black">{checkoutBill.cateringAmount} EGP</span>
+                  <div className="flex justify-between items-center bg-white/50 p-4 rounded-xl border border-white shadow-sm">
+                    <span className="text-[10px] uppercase tracking-wider text-slate-400">طلبات الكافتيريا</span>
+                    <span className="text-slate-900 text-sm md:text-base">{checkoutBill.cateringAmount} EGP</span>
                   </div>
                 </div>
                 
                 {checkoutBill.orders && checkoutBill.orders.length > 0 && (
                   <div className="mt-8 pt-6 border-t border-slate-200">
-                    <p className="text-[10px] font-black text-slate-400 mb-4 uppercase tracking-widest text-center">Breakdown of Items</p>
-                    <div className="space-y-3">
+                    <p className="text-[9px] font-black text-slate-400 mb-4 uppercase tracking-[0.2em] text-center">أصناف الضيافة</p>
+                    <div className="space-y-2">
                       {checkoutBill.orders.map((o: any, idx: number) => (
-                        <div key={idx} className="flex justify-between items-center text-sm font-black bg-white rounded-xl p-3 border border-slate-50">
-                          <span className="text-slate-500">{o.name} <span className="text-[10px] opacity-70">x{o.quantity || 1}</span></span>
-                          <span className="text-slate-900 font-mono">{o.price} EGP</span>
+                        <div key={idx} className="flex justify-between items-center text-[11px] md:text-sm font-black bg-white rounded-xl p-3 border border-slate-50 shadow-sm">
+                          <span className="text-slate-500">{o.name} <span className="text-[9px] opacity-50 px-2 py-0.5 bg-slate-50 rounded ml-2">x{o.quantity || 1}</span></span>
+                          <span className="text-slate-900 font-mono">{o.price} <span className="text-[8px] opacity-30">EGP</span></span>
                         </div>
                       ))}
                     </div>
                   </div>
                 )}
                 
-                <div className="pt-8 mt-4 border-t-2 border-dashed border-slate-200 flex flex-col items-center gap-2">
-                  <span className="text-slate-400 text-[10px] font-black uppercase tracking-widest">Final Amount Due</span>
-                  <p className="text-5xl font-black text-emerald-600 drop-shadow-sm">{checkoutBill.totalAmount} <span className="text-lg opacity-50">EGP</span></p>
+                <div className="pt-8 mt-6 border-t-2 border-dashed border-slate-200 flex flex-col items-center gap-2">
+                  <span className="text-slate-400 text-[10px] font-black uppercase tracking-[0.3em]">المبلغ النهائي للتحصيل</span>
+                  <div className="relative">
+                    <div className="absolute inset-x-0 bottom-2 h-4 bg-emerald-500/10 -rotate-1 rounded-full blur-[4px]" />
+                    <p className="text-4xl md:text-6xl font-black text-emerald-600 relative z-10 italic">
+                      {checkoutBill.totalAmount} 
+                      <span className="text-lg md:text-xl opacity-30 ml-3 not-italic">EGP</span>
+                    </p>
+                  </div>
                 </div>
               </div>
 
