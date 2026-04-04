@@ -20,7 +20,7 @@ export const ContractsPanel = ({ branchId }: { branchId?: string }) => {
     setLoading(true);
     const { data } = await (supabase as any)
       .from('contracts')
-      .select('*')
+      .select('*, customers(id, code, full_name)')
       .eq('branch_id', branchId);
 
     if (data) {
@@ -35,7 +35,10 @@ export const ContractsPanel = ({ branchId }: { branchId?: string }) => {
         startDate: c.start_date || '',
         endDate: c.end_date || '',
         conditionsUs: c.conditions_us || [],
-        conditionsPartner: c.conditions_partner || []
+        conditionsPartner: c.conditions_partner || [],
+        prepaidBalance: c.prepaid_balance || 0,
+        spacePrice: c.space_price || 0,
+        memberCodes: c.customers?.map((m: any) => m.code).join(', ') || ''
       }));
       setContracts(formatted);
     }
@@ -47,11 +50,14 @@ export const ContractsPanel = ({ branchId }: { branchId?: string }) => {
     partner: '',
     discount: '',
     members: '',
-    cashback: '', // We keep this for compatibility if needed, but won't use it for input
+    cashback: '', 
     startDate: '',
     endDate: '',
     conditionsUs: '',
-    conditionsPartner: ''
+    conditionsPartner: '',
+    prepaidBalance: '',
+    spacePrice: '',
+    memberCodes: ''
   });
 
   const getStudentCashbackPercentage = () => {
@@ -65,7 +71,7 @@ export const ContractsPanel = ({ branchId }: { branchId?: string }) => {
 
     const cashbackValue = tab === 'business' ? 0 : Number(getStudentCashbackPercentage());
 
-    const { error } = await (supabase as any).from('contracts').insert({
+    const { data: newContract, error } = await (supabase as any).from('contracts').insert({
       branch_id: branchId,
       partner_name: formData.partner,
       type: tab === 'business' ? 'Business' : 'Student',
@@ -76,17 +82,44 @@ export const ContractsPanel = ({ branchId }: { branchId?: string }) => {
       start_date: formData.startDate,
       end_date: formData.endDate,
       conditions_us: formData.conditionsUs.split('\n').filter(Boolean),
-      conditions_partner: formData.conditionsPartner.split('\n').filter(Boolean)
-    });
+      conditions_partner: formData.conditionsPartner.split('\n').filter(Boolean),
+      prepaid_balance: Number(formData.prepaidBalance) || 0,
+      space_price: Number(formData.spacePrice) || 0
+    }).select().single();
 
-    if (error) alert(error.message);
-    else {
-      setActiveModal(null);
-      setNotification('تم إضافة التعاقد بنجاح');
-      setTimeout(() => setNotification(null), 3000);
-      fetchContracts();
-      setFormData({ partner: '', discount: '', members: '', cashback: '', startDate: '', endDate: '', conditionsUs: '', conditionsPartner: '' });
+    if (error) {
+        alert(error.message);
+        return;
     }
+
+    // Assign members if codes are provided
+    if (newContract && formData.memberCodes) {
+       const codes = formData.memberCodes.split(',').map(c => c.trim().toUpperCase()).filter(Boolean);
+       if (codes.length > 0) {
+          await supabase
+            .from('customers')
+            .update({ contract_id: newContract.id } as any)
+            .in('code', codes);
+       }
+    }
+
+    setActiveModal(null);
+    setNotification('تم إضافة التعاقد بنجاح');
+    setTimeout(() => setNotification(null), 3000);
+    fetchContracts();
+    setFormData({ 
+        partner: '', 
+        discount: '', 
+        members: '', 
+        cashback: '', 
+        startDate: '', 
+        endDate: '', 
+        conditionsUs: '', 
+        conditionsPartner: '',
+        prepaidBalance: '',
+        spacePrice: '',
+        memberCodes: ''
+    });
   };
 
   const openViewModal = (contract: Contract) => {

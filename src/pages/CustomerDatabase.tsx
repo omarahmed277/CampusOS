@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Search, Filter, Download, Mail, Phone, MoreVertical, Plus, X, Edit, QrCode, Send, Trash2, CheckCircle2, Loader2, ChevronUp, AlertCircle, Clock, Users2, RefreshCw } from 'lucide-react';
+import { Search, Filter, Download, Mail, Phone, MoreVertical, Plus, X, Edit, QrCode, Send, Trash2, CheckCircle2, Loader2, ChevronUp, AlertCircle, Clock, Users2, RefreshCw, Wifi } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { supabase } from '../lib/supabase';
 import { Tables } from '../database.types';
@@ -24,6 +24,7 @@ export const CustomerDatabase = ({ branchId }: { branchId?: string }) => {
   const [emailSubject, setEmailSubject] = useState('رسالة من Campus');
   const [emailBody, setEmailBody] = useState('');
   const [sendingEmail, setSendingEmail] = useState(false);
+  const [syncingWifi, setSyncingWifi] = useState<string | null>(null);
 
 
   const colleges = [
@@ -190,7 +191,10 @@ export const CustomerDatabase = ({ branchId }: { branchId?: string }) => {
       }
 
       console.log('Customer added successfully:', data);
-      // setCustomers([data, ...customers]); // Handled by Realtime subscription
+      
+      // Integration: Add user to MikroTik Hotspot via Edge Function
+      await handleSyncToMikrotik(data);
+
       resetForm();
       showNotification(`تم إضافة العميل ${data.full_name} بنجاح!`);
     } catch (error: any) {
@@ -236,7 +240,42 @@ export const CustomerDatabase = ({ branchId }: { branchId?: string }) => {
     }
   };
 
-  // 3. Resend Email
+  // 3. Sync with MikroTik Hotspot
+  const handleSyncToMikrotik = async (customer: Customer) => {
+    if (!customer.code) return;
+    setSyncingWifi(customer.id);
+    try {
+      console.log('📡 Syncing with MikroTik Hotspot...');
+      const mikrotikUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/add-mikrotik-hotspot-user`;
+      
+      const res = await fetch(mikrotikUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`
+        },
+        body: JSON.stringify({ 
+          code: customer.code, 
+          phone: customer.phone, 
+          full_name: customer.full_name 
+        })
+      });
+      
+      const result = await res.json();
+      if (result.success) {
+        showNotification(`📶 تم تفعيل شبكة الواي فاي للعميل (${customer.code}) بنجاح! يمكنه الآن تسجيل الدخول.`);
+      } else {
+        throw new Error(result.error || 'فشل التفعيل');
+      }
+    } catch (err: any) {
+      console.error('❌ MikroTik Sync Error:', err);
+      showNotification('🚫 فشل تفعيل الواي فاي: ' + err.message);
+    } finally {
+      setSyncingWifi(null);
+    }
+  };
+
+  // 4. Resend Email
   const handleResendEmail = async (customer: Customer) => {
     if (!customer.email) return;
     try {
@@ -524,8 +563,16 @@ export const CustomerDatabase = ({ branchId }: { branchId?: string }) => {
                     </span>
                   </td>
                   <td className="px-8 py-6 text-left whitespace-nowrap">
-                    <div className="flex justify-end gap-2">
-                       <button onClick={() => openEditModal(customer)} className="p-2 bg-slate-50 hover:bg-indigo-600 hover:text-white rounded-xl transition-all">
+                    <div className="flex justify-end gap-2 text-right">
+                       <button 
+                         onClick={() => handleSyncToMikrotik(customer)} 
+                         disabled={syncingWifi === customer.id}
+                         className={`p-2 rounded-xl transition-all ${syncingWifi === customer.id ? 'bg-indigo-100 text-indigo-400' : 'bg-slate-50 hover:bg-indigo-600 hover:text-white'}`}
+                         title="تفعيل الواي فاي"
+                       >
+                         <Wifi size={16} className={syncingWifi === customer.id ? 'animate-pulse' : ''} />
+                       </button>
+                       <button onClick={() => openEditModal(customer)} className="p-2 bg-slate-50 hover:bg-slate-900 hover:text-white rounded-xl transition-all">
                          <Edit size={16} />
                        </button>
                        <button onClick={() => { setSelectedCustomer(customer); setActiveModal('qr'); }} className="p-2 bg-slate-50 hover:bg-slate-900 hover:text-white rounded-xl transition-all">
@@ -575,8 +622,15 @@ export const CustomerDatabase = ({ branchId }: { branchId?: string }) => {
                   </div>
                   
                   <div className="flex items-center gap-1">
-                     <button 
-                       onClick={() => { setSelectedCustomer(customer); setActiveModal('qr'); }}
+                      <button 
+                         onClick={() => handleSyncToMikrotik(customer)} 
+                         disabled={syncingWifi === customer.id}
+                         className={`p-2 rounded-lg transition-all ${syncingWifi === customer.id ? 'text-indigo-400 bg-indigo-50' : 'text-indigo-600 bg-indigo-50/50 active:bg-indigo-600 active:text-white'}`}
+                       >
+                         <Wifi size={14} className={syncingWifi === customer.id ? 'animate-pulse' : ''} />
+                      </button>
+                      <button 
+                        onClick={() => { setSelectedCustomer(customer); setActiveModal('qr'); }}
                        className="p-2 text-indigo-600 bg-indigo-50/50 rounded-lg active:bg-indigo-600 active:text-white transition-all"
                      >
                         <QrCode size={14} />

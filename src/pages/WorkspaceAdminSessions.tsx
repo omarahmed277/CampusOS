@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Clock, CheckCircle2, AlertCircle, RefreshCw, X, Receipt, Users2, Sparkles, Plus, Lock } from 'lucide-react';
+import { Clock, CheckCircle2, AlertCircle, RefreshCw, X, Receipt, Users2, Sparkles, Plus, Lock, Briefcase } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { calculateSessionPrice } from '../lib/pricing';
 import { Modal } from '../components/ui';
@@ -27,6 +27,7 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
   const [startingSession, setStartingSession] = useState(false);
   const [inventory, setInventory] = useState<any[]>([]);
   const [pointsPerHour, setPointsPerHour] = useState(10);
+  const [studentCashbackPct, setStudentCashbackPct] = useState(15);
 
   // Helper to format UTC ISO to Cairo Local YYYY-MM-DDTHH:mm
   const toCairoInput = (iso?: string | Date) => {
@@ -98,8 +99,13 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
 
   useEffect(() => {
     const fetchPointsPerHour = async () => {
-      const { data } = await supabase.from('settings').select('value').eq('key', 'points_per_hour').single();
-      if (data?.value) setPointsPerHour(Number(data.value));
+      const { data } = await supabase.from('settings').select('key, value').in('key', ['points_per_hour', 'student_cashback_percentage']);
+      if (data) {
+        const pph = data.find(s => s.key === 'points_per_hour')?.value;
+        const scb = data.find(s => s.key === 'student_cashback_percentage')?.value;
+        if (pph) setPointsPerHour(Number(pph));
+        if (scb) setStudentCashbackPct(Number(scb));
+      }
     };
     fetchPointsPerHour();
   }, []);
@@ -109,7 +115,7 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
     try {
       const { data, error } = await (supabase as any)
         .from('workspace_sessions')
-        .select(`*, customers(full_name, subscriptions(*))`)
+        .select(`*, customers(full_name, loyalty_points, cashback_balance, college, company_members(*, companies(*)))`)
         .eq('branch_id', branchId || '')
         .in('status', ['active', 'checkout_requested', 'pause_requested', 'paused', 'resume_requested'])
         .order('start_time', { ascending: false });
@@ -211,25 +217,38 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
         s.used_hours < s.total_hours
     );
 
-    let workspaceAmount = calculateSessionPrice(diffMinutes) || 0;
+    let workspaceAmount = 0;
     let isSubscribed = false;
     let remainingSubHours = 0;
+    const businessMember = session.customers?.company_members?.[0]; // Get linked business member
+    const businessContract = session.customers?.contracts;
 
     if (activeSub) {
         isSubscribed = true;
         workspaceAmount = 0; 
         remainingSubHours = Number(activeSub.total_hours) - Number(activeSub.used_hours);
+    } else if (businessMember) {
+        // Business logic: Space is logged but not paid now.
+        workspaceAmount = 0; 
+    } else {
+        workspaceAmount = calculateSessionPrice(diffMinutes) || 0;
     }
     
     const orders = Array.isArray(session.orders) ? [...session.orders] : [];
-    const cateringAmount = orders.reduce((sum, o) => sum + ((Number(o.price) || 0) * (Number(o.quantity) || 1)), 0);
-    const totalAmount = (Number(workspaceAmount) || 0) + (Number(cateringAmount) || 0);
+    const actualCateringCost = orders.reduce((sum, o) => sum + ((Number(o.price) || 0) * (Number(o.quantity) || 1)), 0);
+    
+    // If it's a business member, the catering is deducted from their balance, space is logged.
+    // So the "At Counter" amount becomes 0 if both are business-covered.
+    const isBusiness = !!businessMember;
+    const cateringAmount = isBusiness ? 0 : actualCateringCost;
+    const totalAmount = isBusiness ? 0 : Math.max(0, parseFloat(((Number(workspaceAmount) || 0) + (Number(cateringAmount) || 0)).toFixed(2)));
 
     setEditingBill({
       ...session,
       orders,
       workspaceAmount,
       cateringAmount,
+      actualCateringCost,
       totalAmount,
       diffMinutes,
       usedHours,
@@ -239,7 +258,11 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
       subscriptionId: activeSub?.id,
       remainingSubHours: remainingSubHours - usedHours,
       initialRemaining: remainingSubHours,
-      subEndDate: activeSub?.end_date
+      subEndDate: activeSub?.end_date,
+      loyaltyPoints: session.customers?.loyalty_points || 0,
+      cashbackBalance: session.customers?.cashback_balance || 0,
+      deductedCashback: 0,
+      contract: businessContract
     });
   };
 
@@ -258,16 +281,21 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
 
     let workspaceAmount = 0;
     let remainingSubHours = 0;
+    const businessContract = editingBill.contract;
 
     if (editingBill.isSubscribed) {
        workspaceAmount = 0;
        remainingSubHours = Number(editingBill.initialRemaining) - usedHours;
+    } else if (businessContract && businessContract.type === 'Business') {
+       workspaceAmount = (usedHours * (Number(businessContract.space_price) || 0));
     } else {
        workspaceAmount = calculateSessionPrice(diffMinutes) || 0;
     }
 
-    const cateringAmount = Number(editingBill.cateringAmount) || 0;
-    const totalAmount = Number(workspaceAmount) + cateringAmount;
+    const actualCateringCost = (Number(editingBill.actualCateringCost) || 0);
+    const cateringAmount = (businessContract && businessContract.type === 'Business') ? 0 : actualCateringCost;
+    const deductedCashback = Number(editingBill.deductedCashback) || 0;
+    const totalAmount = Math.max(0, parseFloat((Number(workspaceAmount) + cateringAmount - deductedCashback).toFixed(2)));
 
     setEditingBill({
        ...editingBill,
@@ -276,6 +304,8 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
        diffMinutes,
        usedHours,
        workspaceAmount,
+       cateringAmount,
+       actualCateringCost,
        totalAmount,
        remainingSubHours
     });
@@ -286,14 +316,17 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
     const newOrders = [...editingBill.orders];
     newOrders[index] = { ...newOrders[index], [field]: value };
     
-    const newCateringAmount = newOrders.reduce((sum, o) => sum + ((Number(o.price) || 0) * (Number(o.quantity) || 1)), 0);
-    const newTotalAmount = parseFloat(((Number(editingBill.workspaceAmount) || 0) + newCateringAmount).toFixed(2));
+    const actualCateringCost = newOrders.reduce((sum, o) => sum + ((Number(o.price) || 0) * (Number(o.quantity) || 1)), 0);
+    const businessContract = editingBill.contract;
+    const cateringAmount = (businessContract && businessContract.type === 'Business') ? 0 : actualCateringCost;
+    const totalAmount = Math.max(0, parseFloat(((Number(editingBill.workspaceAmount) || 0) + cateringAmount - (Number(editingBill.deductedCashback) || 0)).toFixed(2)));
     
     setEditingBill({
       ...editingBill,
       orders: newOrders,
-      cateringAmount: newCateringAmount,
-      totalAmount: newTotalAmount
+      cateringAmount,
+      actualCateringCost,
+      totalAmount
     });
   };
 
@@ -368,24 +401,89 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
           }
       }
 
-      // 3. Award Loyalty Points
+      // 3. Award Loyalty & Cashback & Handle Business Contract Balance
       if (editingBill.customerId) {
+        const busMember = editingBill.customers?.company_members?.[0];
+
+        // NEW Shared Monthly Billing logic
+        if (busMember) {
+            const currentMonth = new Date(editingBill.startTime).toISOString().slice(0, 7);
+            
+            // 1. Find the contract for this month
+            const { data: contract } = await (supabase as any)
+               .from('monthly_contracts')
+               .select('*')
+               .eq('company_id', busMember.company_id)
+               .eq('month', currentMonth)
+               .single();
+
+            if (contract) {
+               // 2. Log Space usage (Post-paid)
+               await (supabase as any)
+                  .from('space_sessions')
+                  .insert({
+                     company_id: busMember.company_id,
+                     member_id: busMember.id,
+                     contract_id: contract.id,
+                     check_in: editingBill.startTime,
+                     check_out: editingBill.endTime,
+                     duration_hours: editingBill.usedHours,
+                     total_price: editingBill.usedHours * (contract.space_hour_price || 0)
+                  });
+
+               // 3. Log Catering orders (Prepaid Shared)
+               if (editingBill.orders?.length > 0) {
+                  const cOrders = editingBill.orders.map((o: any) => ({
+                     company_id: busMember.company_id,
+                     member_id: busMember.id,
+                     contract_id: contract.id,
+                     item_name: o.name,
+                     price: o.price,
+                     quantity: o.quantity || 1
+                  }));
+                  await (supabase as any).from('catering_orders').insert(cOrders);
+                  // The trigger trg_deduct_catering will update monthly_contracts balance
+               }
+            }
+        }
+        
+        // Legacy Business Contract Deduction (Keep for compatibility if used elsewhere)
+        else if (editingBill.contract?.type === 'Business' && editingBill.actualCateringCost > 0) {
+            const currentBalance = Number(editingBill.contract.prepaid_balance) || 0;
+            const newBalance = Math.max(0, currentBalance - editingBill.actualCateringCost);
+            
+            await supabase
+                .from('contracts')
+                .update({ prepaid_balance: newBalance } as any)
+                .eq('id', editingBill.contract.id);
+        }
+
         const pointsToAward = Math.floor(Number(editingBill.diffMinutes || 0) / (60 / pointsPerHour));
-        if (pointsToAward > 0) {
-          const { data: currentCust } = await supabase
-            .from('customers')
-            .select('loyalty_points')
-            .eq('id', editingBill.customerId)
-            .single() as any;
+        
+        // Student Cashback on the PAID amount (Total - Deducted Cashback)
+        const isStudent = !!editingBill.customers?.college;
+        const paidAmount = Math.max(0, Number(editingBill.totalAmount) || 0);
+        const cashbackToAward = (isStudent && studentCashbackPct > 0) ? (paidAmount * (studentCashbackPct / 100)) : 0;
+
+        const { data: currentCust } = await supabase
+          .from('customers')
+          .select('loyalty_points, cashback_balance')
+          .eq('id', editingBill.customerId)
+          .single() as any;
+        
+        if (currentCust) {
+          const updates: any = { 
+            loyalty_points: (Number(currentCust.loyalty_points) || 0) + pointsToAward,
+            cashback_balance: (Number(currentCust.cashback_balance) || 0) + cashbackToAward - (Number(editingBill.deductedCashback) || 0)
+          };
           
-          if (currentCust) {
-              await supabase
-                .from('customers')
-                .update({ 
-                  loyalty_points: (Number(currentCust.loyalty_points) || 0) + pointsToAward 
-                } as any)
-                .eq('id', editingBill.customerId);
-          }
+          // Ensure balance doesn't go negative
+          if (updates.cashback_balance < 0) updates.cashback_balance = 0;
+
+          await supabase
+            .from('customers')
+            .update(updates)
+            .eq('id', editingBill.customerId);
         }
       }
 
@@ -917,6 +1015,26 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
                 </div>
               )}
 
+              {/* Business Contract Info Badge */}
+              {editingBill.contract?.type === 'Business' && (
+                <div className="bg-slate-900 text-white mb-6 p-6 rounded-3xl relative overflow-hidden group shadow-xl">
+                   <div className="absolute top-0 right-0 w-full h-full bg-gradient-to-br from-slate-500/20 to-transparent -z-10" />
+                   <div className="flex justify-between items-center relative z-10 text-right">
+                      <div>
+                         <p className="text-4xl font-black">{editingBill.contract.prepaid_balance?.toFixed(2)} <span className="text-sm opacity-50 uppercase tracking-widest">EGP Left</span></p>
+                         <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest mt-1">Shared Pre-paid Balance</p>
+                      </div>
+                      <div className="text-right flex flex-col items-end">
+                         <div className="flex items-center gap-2 justify-end mb-1">
+                            <h4 className="text-lg font-black">{editingBill.contract.partner_name}</h4>
+                            <Briefcase size={18} className="text-indigo-400" />
+                         </div>
+                         <p className="text-xs font-bold text-slate-200">الطلبات ستخصم من رصيد الشركة</p>
+                      </div>
+                   </div>
+                </div>
+              )}
+
               {/* Time Control */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                  <div className="bg-slate-50 p-4 rounded-[2rem] border border-slate-100 relative group/start">
@@ -1059,6 +1177,60 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
                   )}
                 </div>
               </div>
+
+              {/* Loyalty & Cashback Section */}
+              {editingBill.customerId && (
+                <div className="bg-emerald-50/50 p-6 rounded-[2.5rem] border border-emerald-100/50 space-y-4">
+                  <div className="flex justify-between items-center">
+                    <div className="text-right">
+                       <h4 className="text-xs font-black text-emerald-800 uppercase tracking-widest flex items-center gap-2 justify-end">
+                         نظام الولاء والمكافآت
+                         <Sparkles size={14} className="text-emerald-500" />
+                       </h4>
+                       <p className="text-[10px] text-emerald-600 mt-1">سيحصل العميل على {Math.floor(editingBill.diffMinutes / (60 / pointsPerHour))} نقطة</p>
+                    </div>
+                    <div className="text-left">
+                       <p className="text-[10px] font-bold text-slate-400">الرصيد الحالي: {editingBill.cashbackBalance} ج.م</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-4 bg-white p-4 rounded-2xl border border-emerald-100 shadow-sm">
+                    <div className="flex-1">
+                      <p className="text-[10px] font-black text-slate-400 mb-1">استخدام من الكاش باك (خصم من الفاتورة)</p>
+                      <input 
+                        type="number"
+                        max={editingBill.cashbackBalance}
+                        value={editingBill.deductedCashback || ''}
+                        placeholder="0.00"
+                        onChange={(e) => {
+                          const val = Math.min(Number(editingBill.cashbackBalance), parseFloat(e.target.value) || 0);
+                          const total = Math.max(0, parseFloat(((Number(editingBill.workspaceAmount) || 0) + (Number(editingBill.cateringAmount) || 0) - val).toFixed(2)));
+                          setEditingBill({
+                            ...editingBill,
+                            deductedCashback: val,
+                            totalAmount: total
+                          });
+                        }}
+                        className="w-full bg-slate-50 border-none rounded-xl px-4 py-2 text-sm font-black text-emerald-600 outline-none"
+                      />
+                    </div>
+                    <button 
+                      onClick={() => {
+                        const val = Number(editingBill.cashbackBalance);
+                        const total = Math.max(0, parseFloat(((Number(editingBill.workspaceAmount) || 0) + (Number(editingBill.cateringAmount) || 0) - val).toFixed(2)));
+                        setEditingBill({
+                          ...editingBill,
+                          deductedCashback: val,
+                          totalAmount: total
+                        });
+                      }}
+                      className="px-4 py-2 bg-emerald-600 text-white text-[10px] font-black rounded-xl hover:bg-emerald-700 transition-all"
+                    >
+                      استخدام الكل
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* Administrative Notes */}
               <div className="bg-slate-50 p-6 rounded-[2.5rem] border border-slate-100 relative group/notes">

@@ -24,6 +24,8 @@ import { RoomsStatus } from './pages/RoomsStatus';
 import { RoomsKiosk } from './pages/RoomsKiosk';
 import { RoomsDatabase } from './pages/RoomsDatabase';
 import { KitchenKiosk } from './pages/KitchenKiosk';
+import { BusinessManagement } from './pages/BusinessManagement';
+import { BusinessKiosk } from './pages/BusinessKiosk';
 
 const DashboardLayout = () => {
   const [branches, setBranches] = useState<Campus[]>([]);
@@ -61,6 +63,7 @@ const DashboardLayout = () => {
       case 'bookings': return 'جدول الحجوزات';
       case 'subscriptions': return 'إدارة الاشتراكات';
       case 'contracts': return 'التعاقدات والشراكات';
+      case 'business': return 'إدارة تعاقدات الشركات';
       case 'staff': return 'إدارة المهام والأداء';
       case 'finance': return 'التقارير المالية والتحليل';
       case 'expenses': return 'سجل المصروفات';
@@ -126,6 +129,7 @@ const DashboardLayout = () => {
               <Route path="bookings" element={<BookingsManager branchId={currentCampus?.id} />} />
               <Route path="subscriptions" element={<SubscriptionsPanel branchId={currentCampus?.id} />} />
               <Route path="contracts" element={<ContractsPanel branchId={currentCampus?.id} />} />
+              <Route path="business" element={<BusinessManagement branchId={currentCampus?.id} />} />
               <Route path="staff" element={<StaffManagement branchId={currentCampus?.id} />} />
               <Route path="finance" element={<FinancePanel branchId={currentCampus?.id} />} />
               <Route path="expenses" element={<ExpensesPanel branchId={currentCampus?.id} />} />
@@ -185,6 +189,7 @@ export const App = () => {
       <Route path="/workspace" element={<WorkspaceLogin />} />
       <Route path="/rooms-kiosk" element={<RoomsKiosk />} />
       <Route path="/kitchen-kiosk" element={<KitchenKiosk />} />
+      <Route path="/business-kiosk" element={<BusinessKiosk />} />
       <Route path="/login" element={<LoginPage />} />
       
       <Route 

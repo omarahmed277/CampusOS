@@ -1,6 +1,6 @@
 import { NavLink, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { LayoutDashboard, UserCheck, ClipboardCheck, Users2, Award, Layers, Calendar, Wallet, Receipt, Package, Users, Settings, LogOut, Monitor, Clock, ChevronRight, ChevronLeft } from 'lucide-react';
+import { LayoutDashboard, UserCheck, ClipboardCheck, Users2, Award, Layers, Calendar, Wallet, Receipt, Package, Users, Settings, LogOut, Monitor, Clock, ChevronRight, ChevronLeft, Building2 } from 'lucide-react';
 
 interface SidebarProps {
   isOpen: boolean;
@@ -28,6 +28,7 @@ export const Sidebar = ({ isOpen, onClose, isCollapsed = false, onToggleCollapse
     { id: 'customers', label: 'قاعدة العملاء', path: '/admin/customers', icon: Users2 },
     { id: 'subscriptions', label: 'الاشتراكات', path: '/admin/subscriptions', icon: Award },
     { id: 'contracts', label: 'التعاقدات', path: '/admin/contracts', icon: Layers },
+    { id: 'business', label: 'الشركات', path: '/admin/business', icon: Building2 },
     { id: 'bookings', label: 'الحجوزات', path: '/admin/bookings', icon: Calendar },
     { id: 'rooms_serving', label: 'حالة الغرف', path: '/admin/rooms-status', icon: Clock },
     { id: 'rooms_database', label: 'قاعدة الغرف', path: '/admin/rooms-database', icon: Layers },

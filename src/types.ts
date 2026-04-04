@@ -58,4 +58,6 @@ export interface Contract {
   endDate?: string;
   conditionsUs?: string[];
   conditionsPartner?: string[];
+  prepaidBalance?: number;
+  spacePrice?: number;
 }

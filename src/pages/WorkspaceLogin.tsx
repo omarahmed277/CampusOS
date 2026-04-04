@@ -1,10 +1,20 @@
 import React, { useState, useEffect } from 'react';
-import { Clock, LogOut, CheckCircle2, Coffee, ShoppingBag, Info, HelpCircle, User, Sparkles, CalendarDays, ChevronLeft, Receipt, X, Search, Package, RefreshCw, Plus, Cookie, Zap, Lock, Wind, PenTool, LayoutGrid, LayoutList, MapPin, ArrowRight, CreditCard, Phone } from 'lucide-react';
+import { Clock, LogOut, CheckCircle2, Coffee, ShoppingBag, Info, HelpCircle, User, Sparkles, CalendarDays, ChevronLeft, Receipt, X, Search, Package, RefreshCw, Plus, Cookie, Zap, Lock, Wind, PenTool, LayoutGrid, LayoutList, MapPin, ArrowRight, CreditCard, Phone, Users, Award } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { Button, Modal } from '../components/ui';
+import { LeaderDashboard } from '../components/workspace/LeaderDashboard';
+import { FinalReceiptModal } from '../components/workspace/FinalReceiptModal';
+import { CateringStore } from '../components/workspace/CateringStore';
+import { ProfileSection } from '../components/workspace/ProfileSection';
+import { SessionDashboard } from '../components/workspace/SessionDashboard';
+import { LandingForms } from '../components/workspace/LandingForms';
+import { WorkspaceMainUI } from '../components/workspace/WorkspaceMainUI';
+import { RegistrationSuccessModal } from '../components/workspace/RegistrationSuccessModal';
 
 // UI tabs options
 type activeTabType = 'session' | 'catering' | 'profile' | 'about' | 'how_work';
+
+
 
 export const WorkspaceLogin = () => {
   const [branches, setBranches] = useState<any[]>([]);
@@ -45,6 +55,19 @@ export const WorkspaceLogin = () => {
   const [showCheckoutConfirm, setShowCheckoutConfirm] = useState(false);
   const [regSuccessData, setRegSuccessData] = useState<{name: string, code: string, email: string} | null>(null);
   const [totalMinutes, setTotalMinutes] = useState(0);
+  const [isLeaderPortal, setIsLeaderPortal] = useState(false);
+  const [leaderCode, setLeaderCode] = useState('');
+  const [leaderData, setLeaderData] = useState<{
+    company: any;
+    contract: any;
+    members: any[];
+  } | null>(null);
+  
+  const [userCompany, setUserCompany] = useState<any>(null);
+  const [currentUserMember, setCurrentUserMember] = useState<any>(null);
+  const [userCompanyMembers, setUserCompanyMembers] = useState<any[]>([]);
+  const [isUserLeader, setIsUserLeader] = useState(false);
+  const [companyContract, setCompanyContract] = useState<any>(null);
 
   const colleges = [
     'كلية الهندسة',
@@ -171,13 +194,29 @@ export const WorkspaceLogin = () => {
           console.warn("Structured order tables (orders/order_items) not found. Falling back to JSON storage.");
       }
 
-      // 3. Deduct Inventory (Always works if inventory table exists)
+      // 3. Sync to Corporate Logs (if user is in a company)
+      if (userCompany && currentUserMember && companyContract) {
+         for (const entry of cartEntries) {
+            await (supabase as any)
+              .from('catering_orders')
+              .insert({
+                  company_id: userCompany.id,
+                  member_id: currentUserMember.id,
+                  contract_id: companyContract.id,
+                  item_name: entry.item.name,
+                  price: Number(entry.item.selling_price) || Number(entry.item.price) || 0,
+                  quantity: Number(entry.quantity) || 1
+              });
+         }
+      }
+
+      // 4. Deduct Inventory (Always works if inventory table exists)
       for (const entry of cartEntries) {
-          const invId = entry.item.id; // Use item.id directly from inventory fetch
+          const invId = entry.item.id;
           const currentStock = Number(entry.item.stock) || 0;
           await (supabase as any)
             .from('inventory')
-            .update({ stock: Math.max(0, currentStock - entry.quantity) })
+            .update({ stock: Math.max(0, currentStock - (Number(entry.quantity) || 1)) })
             .eq('id', invId);
       }
 
@@ -384,30 +423,153 @@ export const WorkspaceLogin = () => {
     }
   };
 
+  const checkCompanyMembership = async (customerId: string, customerPhone: string) => {
+    try {
+      // 1. First, check if leader (by phone or email)
+      const cleanPhone = customerPhone.replace(/\s+/g, '').replace(/^(\+20|0)/, '');
+      const { data: leaderComp } = await (supabase as any)
+        .from('companies')
+        .select('*')
+        .or(`leader_phone.ilike.%${cleanPhone}`);
+
+      let foundCompany = null;
+      let isLeader = false;
+
+      if (leaderComp && leaderComp.length > 0) {
+        foundCompany = leaderComp[0];
+        isLeader = true;
+      } else {
+        // 2. Check if member
+        const { data: member } = await (supabase as any)
+          .from('company_members')
+          .select('*, companies(*)')
+          .eq('customer_id', customerId)
+          .maybeSingle();
+        
+        if (member && member.companies) {
+          foundCompany = member.companies;
+          isLeader = false;
+        }
+      }
+
+      if (foundCompany) {
+        setUserCompany(foundCompany);
+        setIsUserLeader(isLeader);
+
+        const now = new Date();
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+
+        // 1. Concurrent Fetch (Logs + Active Data)
+        const [membersRes, sessionsRes, ordersRes, activeSessionsRes] = await Promise.all([
+          (supabase as any).from('company_members').select('*, customers(full_name, phone, code, email, created_at)').eq('company_id', foundCompany.id),
+          (supabase as any).from('space_sessions').select('*').eq('company_id', foundCompany.id).gte('check_in', startOfMonth),
+          (supabase as any).from('catering_orders').select('*').eq('company_id', foundCompany.id).gte('created_at', startOfMonth),
+          (supabase as any).from('workspace_sessions').select('*').in('status', ['active', 'paused', 'pause_requested', 'checkout_requested'])
+        ]);
+
+        // 2. Identify the current logged-in user within the member roster
+        const me = (membersRes.data || []).find((m: any) => m.customer_id === customerId);
+        setCurrentUserMember(me);
+
+        // 3. Perform Live Aggregation for every member
+        const aggregatedMembers = (membersRes.data || []).map((m: any) => {
+          // Logged historical usage
+          const mSessions = (sessionsRes.data || []).filter((s: any) => s.member_id === m.id);
+          const mOrders = (ordersRes.data || []).filter((o: any) => o.member_id === m.id);
+          
+          // Live session usage (Active)
+          const mActive = (activeSessionsRes.data || []).find((as: any) => as.customer_id === m.customer_id);
+          let activeSpaceMins = 0;
+          let activeCateringAmt = 0;
+          
+          if (mActive) {
+            const start = new Date(mActive.start_time);
+            activeSpaceMins = Math.max(0, Math.floor((now.getTime() - start.getTime()) / 60000));
+            activeCateringAmt = Number(mActive.catering_amount) || 0;
+          }
+
+          const totalCatering = mOrders.reduce((sum: number, o: any) => sum + (Number(o.price) * (Number(o.quantity) || 1)), 0);
+          const totalSpace = mSessions.reduce((sum: number, s: any) => sum + (Number(s.duration_hours) * 60 || 0), 0);
+
+          return {
+            ...m,
+            space_minutes: totalSpace + activeSpaceMins,
+            catering_consumption: totalCatering + activeCateringAmt
+          };
+        });
+
+        setUserCompanyMembers(aggregatedMembers);
+        
+        // 4. Fetch the contract for the current financial cycle
+        const monthStr = `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}`;
+        const { data: contract } = await (supabase as any)
+          .from('monthly_contracts')
+          .select('*')
+          .eq('company_id', foundCompany.id)
+          .eq('month', monthStr)
+          .maybeSingle();
+        setCompanyContract(contract);
+      }
+    } catch (err) {
+      console.error("Company check error:", err);
+    }
+  };
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError('');
 
     try {
-      // Normalize phone number for lookup
       const cleanPhone = phoneNumber.replace(/\s+/g, '').replace(/^(\+20|0)/, '');
       const cleanCode = userCode.trim().toUpperCase();
 
-      // 1. Direct session lookup (to "find session and time" as requested)
-      // This works for both registered customers and visitors (NA codes)
-      const { data: existingSess, error: directError } = await supabase
+      // 1. Resolve Code to Customer Identity
+      let targetCustomer: any = null;
+
+      // Try main database code first
+      const { data: customerData } = await supabase
+        .from('customers')
+        .select('*')
+        .eq('code', cleanCode)
+        .ilike('phone', `%${cleanPhone}`)
+        .maybeSingle();
+
+      if (customerData) {
+        targetCustomer = customerData;
+      } else {
+        // Try company-specific member code
+        const { data: memberData } = await supabase
+          .from('company_members')
+          .select('*, customers(*)')
+          .eq('unique_code', cleanCode)
+          .maybeSingle();
+
+        if (memberData && memberData.customers) {
+          // Double check phone for security
+          const customerPhone = memberData.customers.phone || '';
+          const cleanCustPhone = customerPhone.replace(/\s+/g, '').replace(/^(\+20|0)/, '');
+          if (cleanCustPhone.includes(cleanPhone) || cleanPhone.includes(cleanCustPhone)) {
+             targetCustomer = memberData.customers;
+          }
+        }
+      }
+
+      if (!targetCustomer) {
+        throw new Error('بيانات المستخدم غير صحيحة، تأكد من كود الدخول ورقم الهاتف.');
+      }
+
+      // 2. Check for an active session for this specific customer
+      const { data: existingSess } = await supabase
         .from('workspace_sessions')
         .select('*, customers(full_name)')
-        .eq('user_code', cleanCode)
-        .ilike('phone_number', `%${cleanPhone}`)
+        .eq('customer_id', targetCustomer.id)
         .in('status', ['active', 'checkout_requested', 'pause_requested', 'paused'])
         .maybeSingle();
 
       if (existingSess) {
         localStorage.setItem('workspace_session_id', existingSess.id);
         
-        // Ensure branch context for consistency
         const sess = existingSess as any;
         if (!sess.branch_id && branchId) {
             await (supabase as any)
@@ -422,27 +584,14 @@ export const WorkspaceLogin = () => {
         return;
       }
 
-      // 2. Traditional customer login (to start a NEW session)
-      const { data: customerData, error: customerError } = await supabase
-        .from('customers')
-        .select('id, full_name, code, phone')
-        .eq('code', cleanCode)
-        .ilike('phone', `%${cleanPhone}`)
-        .maybeSingle();
-
-      if (customerError || !customerData) {
-        throw new Error('بيانات المستخدم غير صحيحة، تأكد من كود العميل ورقم الهاتف.');
-      }
-
-      // At this point, we know the customer is valid but has no active session found in step 1
-      // Create new session
+      // 3. Create new session if no active one exists
       const newSession: any = {
-        customer_id: customerData.id,
-        user_code: customerData.code,
-        phone_number: customerData.phone,
+        customer_id: targetCustomer.id,
+        user_code: targetCustomer.code, // Always use main code for session tracking
+        phone_number: targetCustomer.phone,
         start_time: new Date().toISOString(),
         status: 'active',
-        branch_id: branchId // Associated with the selected branch
+        branch_id: branchId
       };
 
       const { data: created, error: createError } = await (supabase as any)
@@ -601,12 +750,12 @@ export const WorkspaceLogin = () => {
       .on('broadcast', { event: 'session_updated' }, (payload) => {
         const newData = payload.payload;
         setSession((prev: any) => {
-          if (!prev) return prev;
+          if (!prev) return null;
           return {
             ...prev,
             status: newData.status,
             end_time: newData.end_time || prev.end_time
-          };
+          } as any;
         });
       })
       .subscribe();
@@ -687,6 +836,73 @@ export const WorkspaceLogin = () => {
     }
   };
 
+  const handleLeaderLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+    try {
+       // 1. Find Company
+       const { data: company, error: compErr } = await (supabase as any)
+          .from('companies')
+          .select('*')
+          .eq('company_code', leaderCode.trim().toUpperCase())
+          .maybeSingle();
+
+       if (compErr || !company) throw new Error('كود الشركة غير صحيح');
+
+       // 2. Get current month's contract
+       const now = new Date();
+       const monthStr = `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}`;
+       
+       const { data: contract } = await (supabase as any)
+          .from('monthly_contracts')
+          .select('*')
+          .eq('company_id', company.id)
+          .eq('month', monthStr)
+          .maybeSingle();
+
+       // 3. Get Members and their stats
+       const { data: members } = await (supabase as any)
+          .from('company_members')
+          .select('*')
+          .eq('company_id', company.id);
+
+       const memberIds = (members || []).map((m: any) => m.customer_id).filter(Boolean);
+       
+       // Calculate member consumption
+       const startOfMonth = `${monthStr}-01`;
+       const { data: orders } = await (supabase as any)
+          .from('catering_orders')
+          .select('member_id, amount')
+          .eq('company_id', company.id)
+          .gte('created_at', startOfMonth);
+
+       const { data: sessions } = await (supabase as any)
+          .from('space_sessions')
+          .select('customer_id, total_hours, total_price')
+          .in('customer_id', memberIds)
+          .gte('created_at', startOfMonth);
+
+       const enrichedMembers = (members || []).map((m: any) => {
+          const mOrders = (orders || []).filter((o: any) => o.member_id === m.id);
+          const mSessions = (sessions || []).filter((s: any) => s.customer_id === m.customer_id);
+          return {
+             ...m,
+             catering_consumption: mOrders.reduce((s, o) => s + (Number(o.amount) || 0), 0),
+             space_minutes: mSessions.reduce((s, o) => s + (Number(o.total_hours) || 0), 0) * 60,
+             cost: mSessions.reduce((s, o) => s + (Number(o.total_price) || 0), 0),
+          };
+       });
+
+       setLeaderData({ company, contract, members: enrichedMembers });
+       setActiveTab('profile'); // Jump to profile to show the data
+    } catch (err: any) {
+       setError(err.message);
+    } finally {
+       setLoading(false);
+    }
+  };
+
   const fetchProfileData = async () => {
     if (!session?.customer_id) return;
     try {
@@ -712,6 +928,9 @@ export const WorkspaceLogin = () => {
             const total = sessionsData.reduce((sum, s) => sum + (Number(s.total_minutes) || 0), 0);
             setTotalMinutes(total);
         }
+        
+        // Sync company membership
+        await checkCompanyMembership(session.customer_id, customer.phone);
       }
     } catch (err) {
       console.error("Profile sync error:", err);
@@ -719,10 +938,17 @@ export const WorkspaceLogin = () => {
   };
 
   useEffect(() => {
-    if (session?.customer_id) {
+    if (session?.customer_id && activeTab === 'profile') {
         fetchProfileData();
     }
-  }, [session?.customer_id]);
+  }, [session?.customer_id, activeTab]);
+
+  useEffect(() => {
+    // Initial company check on session restore
+    if (session?.customer_id) {
+       checkCompanyMembership(session.customer_id, session.phone_number);
+    }
+  }, [session?.id]);
 
   useEffect(() => {
     const fetchLoyaltySettings = async () => {
@@ -741,20 +967,21 @@ export const WorkspaceLogin = () => {
     if (!profileData || profileData.loyalty_points < 100) return;
     setIsConverting(true);
     try {
-        const pointsToConvert = Math.floor(profileData.loyalty_points / 100) * 100;
+        const pointsToConvert = profileData.loyalty_points;
         const rewardAmount = parseFloat((pointsToConvert / cbRatio).toFixed(2)); // Dynamic conversion based on settings
 
         const { error } = await supabase
             .from('customers')
             .update({
-                loyalty_points: (profileData.loyalty_points - pointsToConvert),
+                loyalty_points: 0,
                 cashback_balance: ((profileData.cashback_balance || 0) + rewardAmount)
             } as any)
             .eq('id', profileData.id);
 
         if (error) throw error;
         await fetchProfileData();
-        // Modern notification via session state or simple feedback
+        // Modern notification feedback
+        window.alert(`🎉 تم تحويل ${pointsToConvert} نقطة بنجاح! \nتم إضافة ${rewardAmount} جنيه رصيد كاش باك لحسابك بنجاح. \nسيبدأ تجميع النقاط من جديد من الآن.`);
         console.log(`Converted ${pointsToConvert} points to ${rewardAmount} EGP`);
     } catch (err: any) {
         console.error("Conversion failure:", err.message);
@@ -763,1482 +990,121 @@ export const WorkspaceLogin = () => {
     }
   };
 
+  if (leaderData) {
+    return <LeaderDashboard data={leaderData} onLogout={() => setLeaderData(null)} />;
+  }
+
   if (session) {
     if (session.status === 'completed') {
       return (
-        <div className="min-h-screen bg-[#0B0F19] flex items-center justify-center font-['Cairo'] text-right p-4 relative overflow-hidden">
-          {/* Brand Background Effects */}
-          <div className="absolute top-0 right-0 w-[50vh] h-[50vh] bg-[#1e75b9]/20 rounded-full blur-[120px] pointer-events-none animate-pulse" />
-          <div className="absolute bottom-0 left-0 w-[50vh] h-[50vh] bg-[#1ed788]/10 rounded-full blur-[120px] pointer-events-none" />
-
-          <div className="bg-white/5 backdrop-blur-2xl border border-white/10 rounded-[3rem] p-8 md:p-12 w-full max-w-md text-center flex flex-col items-center animate-in zoom-in-95 duration-500 shadow-2xl">
-            <div className="w-24 h-24 bg-[#1ed788]/20 rounded-full flex items-center justify-center mb-6 border border-[#1ed788]/30">
-              <CheckCircle2 size={48} className="text-[#1ed788]" />
-            </div>
-            <h2 className="text-3xl font-black text-white mb-4">تم إنهاء الجلسة</h2>
-            <div className="bg-white/5 rounded-3xl p-6 w-full space-y-4 mb-8 border border-white/5">
-              <div className="flex justify-between items-center text-slate-300">
-                <span className="font-bold">الوقت الإجمالي:</span>
-                <span className="font-black text-white bg-white/10 px-3 py-1 rounded-xl">{session.total_minutes} دقيقة</span>
-              </div>
-              <div className="flex justify-between items-center text-slate-300">
-                <span className="font-bold">مساحة العمل (10 ج/س):</span>
-                <span className="font-black text-[#1e75b9]">
-                    {session.total_amount ? (session.total_amount - (session.catering_amount || 0)).toFixed(2) : 0} EGP
-                </span>
-              </div>
-              <div className="flex justify-between items-center text-slate-300">
-                <span className="font-bold">إجمالي المتجر:</span>
-                <span className="font-black text-[#f78c2a]">{session.catering_amount || 0} EGP</span>
-              </div>
-              
-              {session.orders && session.orders.length > 0 && (
-                  <div className="text-sm space-y-2 mt-4 pt-4 border-t border-white/10 opacity-90">
-                      <p className="text-slate-400 font-bold mb-2 w-full text-right text-xs">تفاصيل القائمة:</p>
-                      {session.orders.map((o: any, idx: number) => (
-                          <div key={idx} className="flex justify-between items-center text-slate-300 bg-black/20 p-2 rounded-lg gap-3">
-                              <div className="flex items-center gap-3">
-                                {o.image_url && (
-                                  <img src={o.image_url} className="w-10 h-10 rounded-lg object-cover border border-white/10" alt="" />
-                                )}
-                                <div className="text-right">
-                                  <div className="flex items-center gap-2">
-                                     <span className="text-white">- {o.name} <span className="text-[#f78c2a] text-xs font-bold">(x{o.quantity || 1})</span></span>
-                                  </div>
-                                  {o.time && <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">{new Date(o.time).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}</p>}
-                                </div>
-                              </div>
-                              <span className="font-bold text-white">{o.price} EGP</span>
-                          </div>
-                      ))}
-                  </div>
-              )}
-              
-              <div className="flex justify-between items-center pt-4 border-t border-white/20 mt-4">
-                <span className="font-bold text-slate-300">المبلغ الإجمالي المطلـوب:</span>
-                <span className="font-black text-[#1ed788] text-2xl">{session.total_amount} EGP</span>
-              </div>
-
-              {/* Loyalty Reward Preview */}
-              <div className="pt-4 mt-2 border-t border-white/5 flex flex-col items-center gap-2 animate-pulse bg-indigo-500/5 rounded-2xl p-4">
-                  <div className="flex items-center gap-2 text-indigo-400">
-                      <Zap size={16} />
-                      <span className="text-xs font-black uppercase tracking-widest">لقد حصلت على نقاط ولاء</span>
-                  </div>
-                  <div className="flex items-center justify-between w-full">
-                      <div className="text-right">
-                          <p className="text-[10px] font-bold text-slate-500">النقاط المكتسبة</p>
-                          <p className="text-lg font-black text-white">+{Math.floor((Number(session.total_minutes) || 0) / (60 / ptsPerHour))} نقطة</p>
-                      </div>
-                      <div className="text-right">
-                          <p className="text-[10px] font-bold text-slate-500">القيمة المالية</p>
-                          <p className="text-lg font-black text-emerald-400">{(Math.floor((Number(session.total_minutes) || 0) / (60 / ptsPerHour)) / cbRatio).toFixed(2)} EGP</p>
-                      </div>
-                  </div>
-              </div>
-            </div>
-            <button
-              onClick={handleDone}
-              className="w-full bg-[#1e75b9] hover:bg-[#155a96] shadow-[0_0_20px_rgba(30,117,185,0.3)] text-white rounded-2xl py-4 font-bold text-lg transition-all active:scale-95"
-            >
-              العودة للرئيسية
-            </button>
-          </div>
+        <div className="min-h-[100dvh] bg-[#0B0F19] flex items-center justify-center font-['Cairo'] text-right p-4 relative overflow-hidden">
+          <FinalReceiptModal bill={session} onClose={handleDone} companyName={userCompany?.name} />
         </div>
       );
     }
 
+    if (leaderData) {
+      return <LeaderDashboard data={leaderData} onLogout={() => setLeaderData(null)} />;
+    }
+
     return (
-      <div className="h-[100dvh] bg-[#0B0F19] flex flex-col font-['Cairo'] text-right relative overflow-hidden">
-        {/* Abstract Branding Elements */}
-        <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-[#1e75b9]/15 rounded-full blur-[150px] pointer-events-none" />
-        <div className="absolute bottom-0 left-0 w-[500px] h-[500px] bg-[#1ed788]/10 rounded-full blur-[150px] pointer-events-none" />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[300px] bg-[#f78c2a]/5 rounded-full blur-[150px] pointer-events-none rotate-45" />
-
-        {/* TOP PROFILE HEADER */}
-        <div className="relative z-10 pt-8 pb-4 px-6 bg-[#0B0F19]/60 backdrop-blur-3xl border-b border-white/10 flex items-center justify-between animate-in slide-in-from-top-8 duration-700 shadow-2xl shrink-0">
-          <div className="flex items-center gap-5">
-            <div className="relative group">
-              {/* Animated Cyber Ring */}
-              <div className="absolute -inset-1.5 rounded-full bg-gradient-to-r from-indigo-500 via-emerald-400 to-amber-500 opacity-20 group-hover:opacity-100 blur-sm animate-[spin_8s_linear_infinite] transition-opacity" />
-              <div className="absolute -inset-1 rounded-full bg-[#0B0F19] z-10" />
-              
-              <div className="w-14 h-14 rounded-full bg-gradient-to-br from-slate-800 to-slate-900 border border-white/10 relative z-20 flex items-center justify-center shadow-2xl overflow-hidden hover:scale-105 transition-transform duration-500">
-                <div className="absolute inset-0 bg-indigo-500/10 animate-pulse" />
-                <User size={24} className="text-indigo-400 relative z-10" />
-              </div>
-            </div>
-            
-            <div className="text-right">
-              <p className="text-emerald-400 font-black text-[10px] uppercase tracking-[0.3em] mb-1 opacity-70">Cloud Member</p>
-              <h1 className="text-xl md:text-2xl font-black text-white leading-tight flex items-center gap-2 justify-end">
-                <span>{session.customers?.full_name?.split(' ')[0] || 'المستخدم'}</span>
-                <span className="text-slate-500 font-bold opacity-40">،أهلاً</span>
-              </h1>
-              <div className="flex items-center justify-end gap-2 mt-1">
-                 <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest bg-white/5 px-2 py-0.5 rounded-lg border border-white/5">{session.user_code}</span>
-                 <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
-              </div>
-            </div>
-          </div>
-
-          
-        </div>
-
-        {/* MAIN SCROLLABLE CONTENT */}
-        <div className="flex-1 overflow-y-auto px-4 pb-28 pt-6 relative z-10 custom-scrollbar">
-          {/* TAB CONTENTS */}
-          {activeTab === 'session' && (
-            <div className="w-full max-w-lg mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-8 duration-500">
-              
-              {/* Modern Welcome Card */}
-              <div className="relative group mt-2">
-                 <div className="absolute inset-0 bg-gradient-to-r from-indigo-500/10 to-emerald-500/10 rounded-[2.5rem] blur-2xl" />
-                 <div className="bg-white/[0.03] backdrop-blur-3xl border border-white/10 rounded-[2.5rem] p-8 relative overflow-hidden flex flex-col items-center group">
-                    <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/10 rounded-full blur-3xl -translate-y-12 translate-x-12" />
-                    <div className="absolute bottom-0 left-0 w-32 h-32 bg-emerald-500/10 rounded-full blur-3xl translate-y-12 -translate-x-12" />
-                    
-                    <div className="w-20 h-20 bg-gradient-to-br from-indigo-500 to-indigo-700 rounded-[2rem] flex items-center justify-center text-white shadow-2xl mb-6 group-hover:scale-110 group-hover:rotate-6 transition-all duration-700">
-                       <Sparkles size={40} className="animate-pulse" />
-                    </div>
-                    
-                    <h2 className="text-2xl md:text-3xl font-black text-white text-center leading-tight">
-                       أهلاً بيك في كلاود ☁️ <br/> 
-                       <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-emerald-400">بدأت السيشن بتاعتك بنجاح</span>
-                    </h2>
-                    <p className="text-slate-400 font-bold text-center mt-3 text-sm md:text-base opacity-70">نتمني لك يوم سعيد ومليء بالانتاجية</p>
-                 </div>
-              </div>
-
-              {/* Futuristic Modern Timer */}
-              <div className="relative">
-                <div className="absolute -inset-1 bg-gradient-to-b from-white/10 to-transparent rounded-[3rem] blur-sm" />
-                <div className="bg-slate-900/60 backdrop-blur-2xl border-x border-t border-white/10 rounded-[3rem] p-10 md:p-12 w-full relative shadow-[0_30px_60px_rgba(0,0,0,0.5)] overflow-hidden">
-                  {/* Decorative Elements */}
-                  <div className="absolute top-0 left-1/2 -translate-x-1/2 w-48 h-12 bg-indigo-500/20 blur-[60px] rounded-full" />
-                  <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_-20%,rgba(99,102,241,0.1),transparent)] pointer-events-none" />
-                  
-                  <div className="flex flex-col items-center relative z-10">
-                    <div className="flex items-center gap-3 mb-6">
-                       <div className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-ping" />
-                       <span className="text-xs font-black text-indigo-400 uppercase tracking-[0.5em] opacity-80">Active Time Tracking</span>
-                       <div className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-ping" />
-                    </div>
-
-                    <div className="relative">
-                       <div className="absolute inset-0 bg-indigo-400/5 blur-3xl rounded-full scale-150" />
-                       <div className="text-6xl sm:text-7xl md:text-8xl lg:text-9xl font-black text-white font-mono tracking-tighter tabular-nums flex items-baseline filter drop-shadow-[0_0_30px_rgba(255,255,255,0.15)] leading-none">
-                          {elapsedTime}
-                       </div>
-                    </div>
-
-                    <div className="flex items-center gap-8 mt-10 w-full pt-8 border-t border-white/5">
-                       <div className="flex-1 text-center border-r border-white/5">
-                          <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Start Time</p>
-                          <p className="text-sm font-black text-white">{new Date(session.start_time).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}</p>
-                       </div>
-                       <div className="flex-1 text-center">
-                          <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Session Status</p>
-                          <div className="flex items-center justify-center gap-2">
-                             <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
-                             <span className="text-sm font-black text-emerald-500">Live Session</span>
-                          </div>
-                       </div>
-                    </div>
-                  </div>
-
-                  {session.status === 'checkout_requested' && (
-                    <div className="mt-8 relative animate-in zoom-in-95 duration-500">
-                       <div className="absolute inset-0 bg-amber-500/20 blur-xl rounded-2xl" />
-                       <div className="relative bg-amber-500/10 border border-amber-500/30 text-amber-500 font-bold p-5 rounded-2xl shadow-2xl backdrop-blur-md text-center">
-                          <div className="flex items-center justify-center gap-2 mb-2">
-                             <RefreshCw className="animate-spin" size={20} />
-                             <span className="text-lg font-black uppercase tracking-tight">إنتظار التأكيد</span>
-                          </div>
-                          <p className="text-sm leading-relaxed opacity-80">يرجى التوجه لمكتب الاستقبال لسداد الحساب وإتمام المغادرة</p>
-                       </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-              
-              {/* PRIMARY ACTION BUTTONS */}
-              <div className="flex flex-col gap-4">
-                  {session.status === 'active' && (
-                    <div className="grid grid-cols-2 gap-4">
-                        <button
-                            onClick={() => setShowCheckoutConfirm(true)}
-                            className="h-20 bg-rose-600 text-white rounded-[2rem] font-black text-lg flex items-center justify-center gap-3 shadow-xl shadow-rose-900/20 active:scale-95 transition-all group"
-                        >
-                            <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center group-hover:rotate-12 transition-transform">
-                                <LogOut size={22} />
-                            </div>
-                            إنهاء الجلسة
-                        </button>
-                        
-                        <button
-                            onClick={() => handleRequestPause('pause_requested')}
-                            className="h-20 bg-amber-500/10 border border-amber-500/30 text-amber-500 rounded-[2rem] font-black text-lg flex items-center justify-center gap-3 hover:bg-amber-500/20 active:scale-95 transition-all group"
-                        >
-                            <div className="w-10 h-10 bg-amber-500/20 rounded-xl flex items-center justify-center group-hover:-rotate-12 transition-transform">
-                                <Clock size={22} />
-                            </div>
-                            إيقاف العداد
-                        </button>
-                    </div>
-                  )}
-
-                  {session.status === 'pause_requested' && (
-                    <div className="h-24 bg-amber-500/10 border border-amber-500/30 rounded-[2.5rem] p-6 flex items-center justify-between animate-pulse">
-                        <div className="flex items-center gap-4">
-                            <div className="w-12 h-12 bg-amber-500 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-amber-500/30">
-                                <Clock size={24} className="animate-spin" />
-                            </div>
-                            <div className="text-right">
-                                <p className="text-sm font-black text-amber-500">جاري طلب الإيقاف المؤقت...</p>
-                                <p className="text-xs font-bold text-slate-500">في انتظار موافقة المسؤول</p>
-                            </div>
-                        </div>
-                        <button 
-                            onClick={() => handleRequestPause('active')}
-                            className="text-xs font-black text-slate-400 underline underline-offset-4 hover:text-slate-200 decoration-slate-600"
-                        >
-                            إلغاء الطلب
-                        </button>
-                    </div>
-                  )}
-
-                  {session.status === 'paused' && (
-                    <button
-                        onClick={handleResumeSession}
-                        className="h-24 w-full bg-emerald-500 text-white rounded-[2.5rem] font-black text-xl flex items-center justify-center gap-4 shadow-2xl shadow-emerald-900/30 animate-in zoom-in-95 duration-500 hover:bg-emerald-400 group"
-                    >
-                        <div className="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform">
-                            <Plus size={28} />
-                        </div>
-                        استكمال السيشن ▶️
-                    </button>
-                  )}
-
-                  {session.status === 'checkout_requested' && (
-                    <div className="h-24 bg-white/5 border border-white/10 rounded-[2.5rem] p-6 flex items-center justify-center gap-4 text-slate-400 animate-pulse">
-                        <RefreshCw size={24} className="animate-spin" />
-                        <span className="font-black text-lg">جاري مراجعة طلبك..</span>
-                    </div>
-                  )}
-              </div>
-
-              {/* Step-by-step confirmation for Checkout */}
-              {showCheckoutConfirm && (
-                <Modal
-                  isOpen={showCheckoutConfirm}
-                  onClose={() => setShowCheckoutConfirm(false)}
-                  title="تأكيد إنهاء الجلسة"
-                  className="max-w-sm text-center"
-                >
-                  <div className="relative space-y-8 pb-4">
-                    <div className="w-24 h-24 bg-rose-500/10 rounded-full flex items-center justify-center mx-auto ring-8 ring-rose-500/5 animate-pulse mb-4 mt-4">
-                      <HelpCircle size={48} className="text-rose-500" />
-                    </div>
-
-                    <div className="space-y-4">
-                      <h3 className="text-2xl font-black text-white leading-tight">
-                        هل أنت متأكد من إنهاء الجلسة؟
-                      </h3>
-                      <p className="text-slate-400 text-sm font-bold leading-relaxed px-4">
-                        سيتم حساب الوقت الإجمالي وطلب إنهاء الجلسة من الـ Admin. لا يمكنك طلب خدمات إضافية بعد هذا الإجراء.
-                      </p>
-                    </div>
-
-                    <div className="flex flex-col gap-3">
-                      <Button
-                        onClick={() => {
-                          setShowCheckoutConfirm(false);
-                          handleCheckoutRequest();
-                        }}
-                        className="w-full h-16 bg-rose-600 text-white rounded-2xl font-black text-lg transition-all active:scale-95 shadow-xl shadow-rose-900/20 hover:bg-rose-500"
-                      >
-                        نعم، إنهاء الجلسة
-                      </Button>
-                      <Button
-                        onClick={() => setShowCheckoutConfirm(false)}
-                        className="w-full h-14 bg-white/5 text-slate-300 border border-white/10 rounded-2xl font-black text-md transition-all active:scale-95 hover:bg-white/10"
-                      >
-                        تراجع، ابقى هنا
-                      </Button>
-                    </div>
-                  </div>
-                </Modal>
-              )}
-            </div>
-          )}
-          
-          {activeTab === 'catering' && (
-            <div className="w-full max-w-lg mx-auto space-y-6 animate-in fade-in duration-500 pb-20 text-right">
-                <div className="text-center space-y-2 mb-8">
-                  <h2 className="text-3xl font-black text-white tracking-tight"> Cloud Store </h2>
-                  <p className="text-slate-400 text-xs font-bold uppercase tracking-widest">Cloud Store & Catering</p>
-                </div>
-                
-                {/* Search & Categories Bar */}
-                <div className="space-y-4">
-                  <div className="relative group">
-                    <Search className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-indigo-400 transition-colors" size={20} />
-                    <input 
-                      type="text"
-                      placeholder="ابحث عن مشروب أو وجبة..."
-                      value={storeSearch}
-                      onChange={(e) => setStoreSearch(e.target.value)}
-                      className="w-full bg-white/5 border border-white/10 rounded-[2rem] pr-12 pl-6 py-4 text-white font-bold outline-none focus:border-indigo-500/50 focus:ring-4 focus:ring-indigo-500/10 transition-all placeholder:text-slate-600"
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between gap-2 overflow-x-auto pb-2 scrollbar-hide no-scrollbar flex-row-reverse">
-                    <div className="flex gap-1 bg-white/5 p-1 rounded-2xl border border-white/10 shrink-0 shadow-lg">
-                      <button 
-                        onClick={() => setViewMode('grid')}
-                        className={`p-2.5 rounded-xl transition-all ${viewMode === 'grid' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
-                      >
-                        <LayoutGrid size={20} />
-                      </button>
-                      <button 
-                        onClick={() => setViewMode('list')}
-                        className={`p-2.5 rounded-xl transition-all ${viewMode === 'list' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
-                      >
-                        <LayoutList size={20} />
-                      </button>
-                    </div>
-
-                    <div className="flex gap-2">
-                        {[
-                        { id: 'all', label: 'الكل', icon: Sparkles },
-                        { id: 'drinks', label: 'المشروبات', icon: Coffee },
-                        { id: 'snacks', label: 'السناكس', icon: Cookie },
-                        { id: 'office', label: 'أدوات مكتبية', icon: Package }
-                        ].map(cat => (
-                        <button
-                            key={cat.id}
-                            onClick={() => setStoreCategory(cat.id as any)}
-                            className={`flex items-center gap-2 px-6 py-3 rounded-full font-black text-xs whitespace-nowrap transition-all border ${
-                            storeCategory === cat.id 
-                                ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-600/20 scale-105' 
-                                : 'bg-white/5 border-white/10 text-slate-400 hover:bg-white/10'
-                            }`}
-                        >
-                            <cat.icon size={14} />
-                            {cat.label}
-                        </button>
-                        ))}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Cart Summary Header */}
-                {Object.keys(cart).length > 0 && (
-                   <div className="bg-gradient-to-r from-indigo-600 to-indigo-700 p-[1px] rounded-[2rem] shadow-2xl shadow-indigo-600/30 group animate-in slide-in-from-top-4 duration-500">
-                     <div className="bg-[#0B0F19]/90 backdrop-blur-3xl p-5 rounded-[1.95rem] flex justify-between items-center relative overflow-hidden">
-                       <div className="absolute right-0 top-0 w-32 h-32 bg-indigo-500/10 rounded-full blur-3xl -z-10" />
-                       <div className="text-right">
-                         <div className="flex items-center gap-2 mb-1">
-                           <div className="w-2 h-2 bg-indigo-400 rounded-full animate-pulse" />
-                           <p className="text-indigo-400 font-bold text-[10px] uppercase tracking-widest">سلة التسوق النشطة</p>
-                         </div>
-                         <p className="text-white font-black text-xl">
-                            {(Object.values(cart) as any[]).reduce((sum, entry) => sum + ((entry.item.selling_price || entry.item.price) * entry.quantity), 0)}
-                            <span className="text-[10px] opacity-40 mr-1.5 uppercase tracking-tighter">EGP Total</span>
-                         </p>
-                       </div>
-                       <button 
-                         onClick={handleCheckoutCart}
-                         disabled={orderLoading}
-                         className="h-14 px-8 bg-indigo-600 text-white rounded-2xl font-black shadow-xl shadow-indigo-600/20 hover:bg-indigo-500 hover:-translate-y-1 transition-all active:scale-95 flex items-center gap-3"
-                       >
-                         {orderLoading ? <RefreshCw className="animate-spin" size={18} /> : (
-                           <>
-                             إتمام الطلب
-                             <CheckCircle2 size={20} />
-                           </>
-                         )}
-                       </button>
-                     </div>
-                   </div>
-                )}
-
-                <div className={viewMode === 'grid' ? "grid grid-cols-1 sm:grid-cols-2 gap-4" : "flex flex-col gap-3"}>
-                  {cateringItems
-                    .filter(item => {
-                      const name = item.name.toLowerCase();
-                      const matchesSearch = name.includes(storeSearch.toLowerCase());
-                      const matchesCat = storeCategory === 'all' || 
-                        (storeCategory === 'drinks' && (item.category === 'beverages' || item.category === 'مشروبات' || name.includes('قهوة') || name.includes('شاي') || name.includes('كولا') || name.includes('ماء'))) ||
-                        (storeCategory === 'snacks' && (item.category === 'snacks' || item.category === 'سناكس' || name.includes('شيبس') || name.includes('بسكويت') || name.includes('كرواسون'))) ||
-                        (storeCategory === 'office' && (item.category === 'office' || item.category === 'أدوات مكتبية'));
-                      return matchesSearch && matchesCat;
-                    })
-                    .length > 0 ? (
-                      cateringItems
-                        .filter(item => {
-                           const matchesSearch = item.name.toLowerCase().includes(storeSearch.toLowerCase());
-                           const matchesCat = storeCategory === 'all' || 
-                             (storeCategory === 'drinks' && (item.category === 'مشروبات' || item.category === 'beverages')) ||
-                             (storeCategory === 'snacks' && (item.category === 'سناكس' || item.category === 'snacks')) ||
-                             (storeCategory === 'office' && item.category === 'أدوات مكتبية');
-                           return matchesSearch && matchesCat;
-                        })
-                        .map(item => {
-                          const cartEntry = cart[item.id];
-                          const isLowStock = (item.stock || 0) <= 5;
-                          
-                          // Dynamic Color/Icon logic
-                          const name = item.name.toLowerCase();
-                          const isDrink = name.includes('قهوة') || name.includes('نسكافيه') || name.includes('شاي') || name.includes('كولا') || name.includes('بيبسي') || name.includes('ماء') || name.includes('عصير');
-                          const isSnack = name.includes('شيبس') || name.includes('بسكويت') || name.includes('كرواسون') || name.includes('مولتو') || name.includes('سندوتش');
-                          const isOffice = item.category === 'أدوات مكتبية';
-
-                          let typeColor = 'bg-indigo-500/10 text-indigo-400';
-                          let typeGlow = 'from-indigo-500/20 to-blue-500/20';
-                          let Icon = Coffee;
-
-                          if (isDrink) {
-                            typeColor = 'bg-blue-500/10 text-blue-400';
-                            typeGlow = 'from-blue-500/30 to-cyan-500/10';
-                            Icon = Coffee;
-                          } else if (isSnack) {
-                            typeColor = 'bg-amber-500/10 text-amber-400';
-                            typeGlow = 'from-amber-500/30 to-orange-500/10';
-                            Icon = Cookie;
-                          } else if (isOffice) {
-                            typeColor = 'bg-rose-500/10 text-rose-400';
-                            typeGlow = 'from-rose-500/30 to-pink-500/10';
-                            Icon = PenTool;
-                          }
-
-                          if (viewMode === 'list') {
-                            return (
-                                <div key={item.id} className="relative group/list">
-                                    <div className="bg-[#0B0F19]/80 backdrop-blur-3xl border border-white/5 hover:border-white/10 rounded-2xl p-3 flex items-center gap-4 transition-all duration-300 hover:bg-white/5 shadow-lg text-right">
-                                        <div className="w-16 h-16 rounded-xl overflow-hidden shrink-0 border border-white/5 relative">
-                                            {item.image_url ? (
-                                                <img src={item.image_url} alt={item.name} className="w-full h-full object-cover" />
-                                            ) : (
-                                                <div className={`w-full h-full flex items-center justify-center bg-gradient-to-br ${typeGlow} opacity-30`}>
-                                                    <Icon size={24} className="opacity-50" />
-                                                </div>
-                                            )}
-                                            {isLowStock && (
-                                                <div className="absolute inset-x-0 bottom-0 bg-rose-500 text-[8px] font-black py-0.5 text-center text-white uppercase z-10">رصيد قليل</div>
-                                            )}
-                                            
-                                            {/* Category Icon Badge - Floating over image */}
-                                            <div className={`absolute top-1 right-1 w-5 h-5 rounded-md flex items-center justify-center border border-white/10 backdrop-blur-md z-10 ${typeColor}`}>
-                                               <Icon size={10} />
-                                            </div>
-                                        </div>
-
-                                        <div className="flex-1">
-                                            <h4 className="text-white font-black text-sm line-clamp-1">{item.name}</h4>
-                                            <div className="flex items-center gap-2 mt-1">
-                                                <span className="text-indigo-400 font-black text-sm">{item.selling_price} EGP</span>
-                                                <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">{isDrink ? 'مشروبات' : isSnack ? 'سناكس' : isOffice ? 'أدوات' : 'أخرى'}</span>
-                                            </div>
-                                        </div>
-
-                                        <div className="shrink-0 flex items-center gap-2">
-                                            {cartEntry ? (
-                                                <div className="flex items-center bg-white/5 rounded-xl border border-white/10 overflow-hidden">
-                                                    <button onClick={() => removeFromCart(item.id)} className="p-2 hover:bg-rose-500/20 text-rose-400 transition-colors">
-                                                        <X size={14} />
-                                                    </button>
-                                                    <span className="px-2 text-white font-black text-sm">{cartEntry.quantity}</span>
-                                                    <button onClick={() => addToCart(item)} disabled={session?.status === 'checkout_requested'} className="p-2 hover:bg-emerald-500/20 text-emerald-400 transition-colors disabled:opacity-30">
-                                                        <Plus size={14} />
-                                                    </button>
-                                                </div>
-                                            ) : (
-                                                <button 
-                                                    onClick={() => addToCart(item)} 
-                                                    disabled={session?.status === 'checkout_requested' || (item.stock || 0) <= 0}
-                                                    className="w-10 h-10 rounded-xl bg-indigo-600/20 border border-indigo-500/30 text-indigo-400 flex items-center justify-center hover:bg-indigo-600 hover:text-white transition-all disabled:opacity-20"
-                                                >
-                                                    <Plus size={18} />
-                                                </button>
-                                            )}
-                                        </div>
-                                    </div>
-                                </div>
-                            );
-                          }
-
-                          return (
-                            <div key={item.id} className="relative group/card h-full">
-                              <div className={`absolute inset-0 rounded-[2.5rem] bg-gradient-to-br transition-all duration-500 blur-xl opacity-0 group-hover/card:opacity-30 ${typeGlow}`} />
-                              <div className="bg-[#0B0F19]/80 backdrop-blur-3xl border border-white/5 hover:border-white/10 rounded-[2.5rem] flex flex-col relative overflow-hidden h-full shadow-2xl transition-all duration-300 hover:-translate-y-1">
-                                 {/* Product Image Section - Enhanced Cropping & Premium Look */}
-                                 {/* Premium Product Image Container */}
-                                 <div className="aspect-[4/3] relative overflow-hidden group/img border-b border-white/5 bg-slate-900/40">
-                                    {item.image_url && item.image_url.trim() !== '' ? (
-                                      <img 
-                                        src={item.image_url} 
-                                        alt={item.name} 
-                                        className="w-full h-full object-cover object-center transition-all duration-1000 ease-out group-hover/card:scale-110 group-hover/card:rotate-2" 
-                                      />
-                                    ) : (
-                                      <div className={`w-full h-full flex flex-col items-center justify-center bg-gradient-to-br ${typeGlow} opacity-30`}>
-                                         <Icon size={48} className="opacity-20 animate-pulse" />
-                                         <span className="text-[8px] font-black uppercase mt-3 tracking-[0.3em] opacity-20">NO IMAGE</span>
-                                      </div>
-                                    )}
-                                    
-                                    {/* Category Icon Badge - Premium Float */}
-                                    <div className={`absolute top-4 right-4 z-20 w-10 h-10 rounded-2xl flex items-center justify-center border border-white/10 backdrop-blur-xl shadow-2xl transform group-hover/card:scale-110 transition-all duration-500 ${typeColor}`}>
-                                       <Icon size={18} />
-                                       <div className="absolute inset-0 rounded-2xl bg-white/5 animate-pulse" />
-                                    </div>
-                                    
-                                    {/* Glassmorphic Gradient Overlay */}
-                                    <div className="absolute inset-0 bg-gradient-to-t from-[#0B0F19] via-transparent to-black/10 opacity-70 group-hover/card:opacity-40 transition-opacity duration-500" />
-                                    
-                                    {/* Premium Price Tag Overlay */}
-                                    <div className="absolute top-4 left-4 z-20">
-                                       <div className="bg-[#0B0F19]/80 backdrop-blur-xl border border-white/10 px-4 py-2 rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.5)] transform -rotate-2 group-hover/card:rotate-0 transition-all duration-500 hover:scale-110">
-                                          <div className="text-xl font-black text-white leading-none flex items-baseline gap-1">
-                                            {item.selling_price}
-                                            <span className="text-[10px] text-indigo-400 uppercase tracking-tighter">EGP</span>
-                                          </div>
-                                       </div>
-                                    </div>
- 
-                                    {isLowStock && (
-                                       <div className="absolute bottom-4 right-4 z-20 bg-rose-500/90 backdrop-blur-md text-white text-[9px] font-black px-3 py-1.5 rounded-xl animate-pulse border border-white/20 uppercase tracking-[0.2em] shadow-lg">
-                                         رصيد محدود
-                                       </div>
-                                    )}
-                                 </div>
-
-                                <div className="p-6 flex flex-col flex-1">
-                                  <div className="flex justify-between items-start mb-2">
-                                    <div className={`p-2.5 rounded-xl shadow-lg ${typeColor}`}>
-                                      <Icon size={18}/>
-                                    </div>
-                                    <div className="flex items-center gap-1 opacity-40">
-                                       <LayoutGrid size={10} />
-                                       <p className="text-[10px] font-bold uppercase tracking-widest">{isDrink ? 'مشروبات' : isSnack ? 'سناكس' : isOffice ? 'أدوات' : 'أخرى'}</p>
-                                    </div>
-                                  </div>
-
-                                  <div className="text-right flex-1 mb-4">
-                                      <p className="font-extrabold text-white text-lg leading-snug group-hover/card:text-indigo-300 transition-colors tracking-tight line-clamp-2">{item.name}</p>
-                                  </div>
-                                  
-                                  <div className="flex items-center gap-2">
-                                    {cartEntry ? (
-                                    <div className="flex flex-1 items-center justify-between bg-white/5 p-1 rounded-2xl border border-white/10 shadow-[inset_0_2px_10px_rgba(0,0,0,0.5)]">
-                                      <button 
-                                        onClick={() => removeFromCart(item.id)} 
-                                        className="w-10 h-10 rounded-xl bg-white/5 text-slate-400 flex items-center justify-center font-black transition-all hover:bg-rose-500 hover:text-white active:scale-90"
-                                      >
-                                        <X size={16} strokeWidth={4} />
-                                      </button>
-                                      <span className="text-xl text-white font-black">{cartEntry.quantity}</span>
-                                      <button 
-                                        onClick={() => addToCart(item)} 
-                                        disabled={session?.status === 'checkout_requested'}
-                                        className="w-10 h-10 rounded-xl bg-white/5 text-slate-400 flex items-center justify-center font-black transition-all hover:bg-emerald-500 hover:text-white active:scale-90 disabled:opacity-30"
-                                      >
-                                        <Plus size={16} strokeWidth={4} />
-                                      </button>
-                                    </div>
-                                  ) : (
-                                    <button 
-                                       onClick={() => addToCart(item)} 
-                                       disabled={session?.status === 'checkout_requested' || (item.stock || 0) <= 0}
-                                       className="w-full h-14 rounded-2xl bg-white/5 hover:bg-indigo-600 text-slate-300 hover:text-white border border-white/5 hover:border-indigo-500 transition-all font-black text-sm flex items-center justify-center gap-3 disabled:opacity-20 disabled:pointer-events-none group/btn shadow-lg"
-                                     >
-                                       { (item.stock || 0) <= 0 ? 'نفذت الكمية' : (
-                                          <>
-                                            أضف لطلبك
-                                            <div className="p-1.5 bg-white/10 rounded-lg group-hover/btn:bg-white/20 transition-colors">
-                                              <Plus size={18} className="group-hover/btn:rotate-90 transition-transform"/>
-                                            </div>
-                                          </>
-                                       )}
-                                     </button>
-                                      )}
-                                    </div>
-                                  </div>
-                                </div>
-                              </div>
-                          )
-                        })
-                ) : (
-                  <div className="col-span-full py-24 flex flex-col items-center justify-center text-slate-600 bg-white/2 backdrop-blur-md border border-white/5 border-dashed rounded-[3rem]">
-                    <div className="w-24 h-24 bg-white/5 rounded-full flex items-center justify-center mb-8 relative">
-                      <ShoppingBag size={48} className="text-slate-700 opacity-20" />
-                      <div className="absolute inset-0 bg-indigo-500/5 blur-3xl rounded-full animate-pulse" />
-                    </div>
-                    <p className="font-black text-xl text-slate-500">لم يتم العثور على نتائج</p>
-                    <button onClick={() => { setStoreSearch(''); setStoreCategory('all'); }} className="mt-4 px-6 py-2 bg-indigo-600/10 text-indigo-400 rounded-full text-[10px] font-black uppercase tracking-widest hover:bg-indigo-600 hover:text-white transition-all">العودة للرئيسية</button>
-                  </div>
-                )
-              }
-                </div>
-                
-                {session.orders?.length > 0 && (
-                    <div className="mt-24 pt-12 border-t-2 border-dashed border-white/5 text-right animate-in fade-in slide-in-from-bottom-10 duration-1000">
-                        <div className="flex flex-col items-center mb-10">
-                          <div className="w-20 h-20 bg-indigo-500/10 text-indigo-400 rounded-[2rem] flex items-center justify-center mb-4 shadow-2xl shadow-indigo-500/10 border border-white/5">
-                            <Receipt size={36}/>
-                          </div>
-                          <h3 className="font-black text-white text-3xl tracking-tight">قائمة الطلبات المستلمة</h3>
-                          <p className="text-slate-500 text-[10px] font-extrabold uppercase tracking-[0.3em] mt-3 opacity-60">Verified Order Summary</p>
-                        </div>
-
-                        <div className="bg-[#0B0F19]/60 backdrop-blur-xl rounded-[3rem] p-10 border border-white/5 shadow-[inset_0_2px_40px_rgba(0,0,0,0.4)] relative overflow-hidden">
-                            <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-600/5 rounded-full blur-[80px] -z-10" />
-                            <div className="space-y-6">
-                                {session.orders.map((o: any, idx: number) => (
-                                    <div key={idx} className="flex justify-between items-center group/order">
-                                      <div className="flex items-center gap-5">
-                                        <div className="w-12 h-12 rounded-2xl bg-white/5 flex flex-col items-center justify-center text-[10px] font-black text-white border border-white/5 group-hover/order:bg-indigo-600 transition-colors">
-                                          <span>{o.quantity}</span>
-                                          <span className="opacity-40 text-[7px] uppercase leading-none mt-0.5">Qty</span>
-                                        </div>
-                                        <div className="text-right">
-                                           <p className="text-white text-base font-black group-hover/order:text-indigo-300 transition-colors uppercase tracking-tight">{o.name}</p>
-                                           <p className="text-[10px] text-slate-500 font-bold mt-0.5 underline decoration-indigo-500/30 underline-offset-4">{o.price} EGP per unit</p>
-                                        </div>
-                                      </div>
-                                      <div className="flex items-center gap-1">
-                                        <span className="text-emerald-400 font-mono text-lg font-black tracking-tighter">{(o.price * o.quantity).toFixed(2)}</span>
-                                        <span className="text-[8px] text-slate-500 font-black rotate-90">EGP</span>
-                                      </div>
-                                    </div>
-                                ))}
-                            </div>
-                            
-                            <div className="mt-12 pt-8 border-t border-white/10 flex justify-between items-center">
-                                <div className="text-right">
-                                  <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-2 flex items-center gap-2">
-                                     <MapPin size={10} className="text-indigo-400" /> الفرع الرئيسي
-                                  </p>
-                                  <p className="text-4xl font-black text-white leading-none">
-                                    {(session.catering_amount || 0).toLocaleString()}
-                                    <span className="text-xs text-indigo-400 mr-3 font-bold uppercase tracking-tighter">Total EGP</span>
-                                  </p>
-                                </div>
-                                <div className="bg-white/5 border border-white/10 rounded-2xl px-6 py-3 flex flex-col items-center">
-                                   <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">Status</p>
-                                   <div className="flex items-center gap-2 text-emerald-400">
-                                      <CheckCircle2 size={16} />
-                                      <span className="text-xs font-black uppercase">Confirmed</span>
-                                   </div>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <p className="text-center text-slate-600 text-[10px] font-bold mt-12 tracking-[0.3em] uppercase opacity-40">Thank you for visiting Cloud Space</p>
-                    </div>
-                )}
-            </div>
-          )}
-
-          {activeTab === 'profile' && (
-            <div className="w-full max-w-lg mx-auto space-y-6 md:space-y-8 animate-in fade-in slide-in-from-bottom-8 duration-500 pb-20">
-               {/* Points & Cashback Dashboard */}
-               <div className="grid grid-cols-2 lg:grid-cols-2 gap-3 md:gap-4 overflow-visible">
-                  <div className="bg-gradient-to-br from-indigo-600 to-indigo-900 p-5 md:p-6 rounded-[2rem] md:rounded-[2.5rem] border border-white/10 shadow-2xl relative overflow-hidden group">
-                     <div className="absolute top-0 right-0 w-24 h-24 bg-white/10 rounded-full blur-2xl -translate-y-8 translate-x-8" />
-                     <Zap className="text-white opacity-20 absolute bottom-4 left-4 group-hover:scale-125 transition-transform" size={32} md:size={40} />
-                     <div className="absolute top-4 left-4 animate-bounce">
-                        <Sparkles className="text-amber-400 opacity-50" size={16} />
-                     </div>
-                     <p className="text-[9px] md:text-[10px] font-black text-indigo-200 uppercase tracking-widest mb-1 text-right">نقاط الولاء</p>
-                     <h3 className="text-2xl md:text-3xl font-black text-white text-right font-mono">{profileData?.loyalty_points || 0}</h3>
-                     <p className="text-[8px] md:text-[9px] font-bold text-indigo-300 text-right mt-1">{ptsPerHour} نقاط لكل ساعة</p>
-                  </div>
-                  <div className="bg-gradient-to-br from-emerald-600 to-emerald-900 p-5 md:p-6 rounded-[2rem] md:rounded-[2.5rem] border border-white/10 shadow-2xl relative overflow-hidden group">
-                     <div className="absolute top-0 right-0 w-24 h-24 bg-white/10 rounded-full blur-2xl -translate-y-8 translate-x-8" />
-                     <CreditCard className="text-white opacity-20 absolute bottom-4 left-4 group-hover:scale-125 transition-transform" size={32} md:size={40} />
-                     <p className="text-[9px] md:text-[10px] font-black text-emerald-200 uppercase tracking-widest mb-1 text-right">رصيد الكاش باك</p>
-                     <h3 className="text-2xl md:text-3xl font-black text-white text-right font-mono">
-                        {profileData?.cashback_balance || 0} 
-                        <span className="text-xs ml-1 opacity-50">EGP</span>
-                     </h3>
-                     <p className="text-[8px] md:text-[9px] font-bold text-emerald-300 text-right mt-1">رصيد متاح للاستخدام</p>
-                  </div>
-                  <div className="col-span-2 bg-gradient-to-br from-slate-700 to-slate-900 p-5 md:p-6 rounded-[2rem] md:rounded-[2.5rem] border border-white/10 shadow-2xl relative overflow-hidden group">
-                     <div className="absolute top-0 right-0 w-24 h-24 bg-white/10 rounded-full blur-2xl -translate-y-8 translate-x-8" />
-                     <Clock className="text-white opacity-20 absolute bottom-4 left-4 group-hover:scale-125 transition-transform" size={32} md:size={40} />
-                     <p className="text-[9px] md:text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 text-right">إجمالي الساعات</p>
-                     <h3 className="text-2xl md:text-3xl font-black text-white text-right font-mono">
-                        {(totalMinutes / 60).toFixed(0)} <span className="text-xs">H</span> {(totalMinutes % 60).toString().padStart(2, '0')} <span className="text-xs">M</span>
-                     </h3>
-                     <p className="text-[8px] md:text-[9px] font-bold text-slate-500 text-right mt-1">الوقت الإجمالي الذي قضيته في كلاود</p>
-                  </div>
-               </div>
-
-               {/* Points Conversion Card */}
-               {profileData?.loyalty_points >= 100 && (
-                 <div className="bg-white/5 border border-white/10 rounded-[2.5rem] p-6 flex items-center justify-between gap-4 backdrop-blur-xl group hover:border-indigo-500/50 transition-all">
-                    <div className="text-right">
-                       <h4 className="font-black text-white text-sm">حول نقاطك إلى نقود</h4>
-                       <p className="text-[10px] font-bold text-slate-500">كل 100 نقطة = {(100 / cbRatio).toFixed(2)} جنيه كاش باك</p>
-                    </div>
-                    <button 
-                       onClick={convertPointsToCashback}
-                       disabled={isConverting}
-                       className="h-12 px-6 bg-indigo-600 text-white rounded-2xl font-black text-xs hover:bg-indigo-500 active:scale-95 transition-all shadow-lg shadow-indigo-900/40 disabled:opacity-50"
-                    >
-                       {isConverting ? <RefreshCw className="animate-spin" /> : 'تحويل الآن ✨'}
-                    </button>
-                 </div>
-               )}
-
-               {/* Subscription Section */}
-               <div className="space-y-4">
-                  <div className="flex items-center justify-between px-2">
-                     <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">إدارة الاشتراك</p>
-                     <Sparkles size={14} className="text-amber-400" />
-                  </div>
-                  
-                  {activeSub ? (
-                    <div className="bg-slate-900 border border-white/10 rounded-[2.5rem] p-8 space-y-8 relative overflow-hidden group">
-                       <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/10 to-transparent pointer-events-none" />
-                       <div className="flex flex-row-reverse justify-between items-center group-hover:px-2 transition-all">
-                          <div className="text-right">
-                             <span className="bg-emerald-500/20 text-emerald-400 text-[10px] font-black px-3 py-1 rounded-lg uppercase tracking-tighter mb-2 inline-block">Active Plan</span>
-                             <h4 className="text-2xl font-black text-white">{activeSub.type}</h4>
-                             <p className="text-slate-500 text-xs font-bold mt-1 tracking-wide">ينتهي في: {new Date(activeSub.end_date).toLocaleDateString('ar-EG')}</p>
-                          </div>
-                          <div className="w-16 h-16 bg-white/5 rounded-3xl flex items-center justify-center text-white ring-1 ring-white/10 group-hover:rotate-12 transition-transform">
-                             <Clock size={32} />
-                          </div>
-                       </div>
-                       
-                       <div className="space-y-3 pt-4 border-t border-white/5">
-                          <div className="flex flex-row-reverse justify-between text-xs font-black">
-                             <span className="text-slate-400 uppercase tracking-widest">المتبقي من الساعات</span>
-                             <span className="text-white">{(activeSub.total_hours - activeSub.used_hours).toFixed(1)} / {activeSub.total_hours}H</span>
-                          </div>
-                          <div className="h-3 bg-white/5 rounded-full overflow-hidden p-0.5 border border-white/5">
-                             <div 
-                                className="h-full bg-gradient-to-r from-indigo-500 to-emerald-400 rounded-full transition-all duration-1000"
-                                style={{ width: `${Math.max(5, (1 - (activeSub.used_hours / activeSub.total_hours)) * 100)}%` }}
-                             />
-                          </div>
-                       </div>
-                    </div>
-                  ) : (
-                    <div className="bg-white/5 border-2 border-dashed border-white/5 rounded-[2.5rem] p-12 text-center space-y-4 opacity-50">
-                       <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center mx-auto text-slate-500">
-                          <CreditCard size={28} />
-                       </div>
-                       <div>
-                          <p className="font-black text-white">لا يوجد اشتراك مفعل</p>
-                          <p className="text-xs font-bold text-slate-500">اشترك الآن لتوفير أكثر من 40% من تكلفة الساعة</p>
-                       </div>
-                    </div>
-                  )}
-               </div>
-
-                {/* Profile Info & Account Settings */}
-                <div className="space-y-4">
-                   <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest px-4">معلومات الحساب</p>
-                   <div className="bg-white/5 border border-white/10 rounded-[2rem] md:rounded-[2.5rem] overflow-hidden divide-y divide-white/5">
-                      <div className="p-5 md:p-6 flex flex-row-reverse items-center justify-between hover:bg-white/[0.02] transition-colors">
-                         <div className="flex flex-row-reverse items-center gap-4">
-                            <div className="w-10 h-10 bg-slate-800/80 rounded-xl flex items-center justify-center text-indigo-400 ring-1 ring-white/5"><User size={18} /></div>
-                            <div className="text-right">
-                               <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Full Name</p>
-                               <p className="text-sm md:text-base font-black text-white">{profileData?.full_name}</p>
-                            </div>
-                         </div>
-                         <PenTool size={14} className="text-slate-600 opacity-50" />
-                      </div>
-                      <div className="p-5 md:p-6 flex flex-row-reverse items-center justify-between hover:bg-white/[0.02] transition-colors">
-                         <div className="flex flex-row-reverse items-center gap-4">
-                            <div className="w-10 h-10 bg-slate-800/80 rounded-xl flex items-center justify-center text-emerald-400 ring-1 ring-white/5"><Phone size={18} /></div>
-                            <div className="text-right">
-                               <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Mobile Number</p>
-                               <p className="text-sm md:text-base font-black text-white" dir="ltr">{profileData?.phone?.startsWith('0') ? '' : '0'}{profileData?.phone}</p>
-                            </div>
-                         </div>
-                      </div>
-                      <div className="p-5 md:p-6 flex flex-row-reverse items-center justify-between hover:bg-white/[0.02] transition-colors">
-                         <div className="flex flex-row-reverse items-center gap-4">
-                            <div className="w-10 h-10 bg-slate-800/80 rounded-xl flex items-center justify-center text-amber-400 ring-1 ring-white/5"><Info size={18} /></div>
-                            <div className="text-right">
-                               <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Login Code</p>
-                               <p className="text-sm md:text-base font-black text-white font-mono tracking-widest">{profileData?.code}</p>
-                            </div>
-                         </div>
-                      </div>
-                   </div>
-                </div>
-             </div>
-          )}
-          {activeTab === 'about' && (
-            <div className="w-full max-w-lg mx-auto flex flex-col animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-8 pb-20">
-               <div className="bg-[#0B0F19]/60 backdrop-blur-3xl border border-white/5 p-10 md:p-12 rounded-[2.5rem] relative overflow-hidden shadow-2xl text-right">
-                <div className="absolute top-0 left-0 w-64 h-64 bg-[#1e75b9]/20 rounded-full blur-[100px] -translate-x-12 -translate-y-12" />
-                <div className="absolute bottom-0 right-0 w-64 h-64 bg-[#1ed788]/10 rounded-full blur-[80px] translate-x-20 translate-y-20" />
-                
-                <div className="relative z-10 text-center mb-12">
-                   <h2 className="text-4xl font-black text-white mb-4 tracking-tighter">Cloud Co-Working</h2>
-                   <div className="h-1.5 w-20 bg-indigo-500 mx-auto rounded-full shadow-[0_0_15px_rgba(99,102,241,0.5)]" />
-                   <p className="text-slate-400 mt-6 font-bold leading-relaxed max-w-sm mx-auto">
-                      المكان الأمثل الذي يجمع بين هدوء التركيز، وحيوية الإبداع، وخدمات الضيافة الراقية.
-                   </p>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 relative z-10">
-                  {[
-                    { title: 'إنترنت فائق', desc: 'سرعات تصل لـ 200 ميجا لتحميل شغلك بلا توقف.', icon: Zap, color: 'text-indigo-400' },
-                    { title: 'هدوء كامل', desc: 'عزل صوتي تام يضمن لك أقصى درجات التركيز.', icon: Wind, color: 'text-blue-400' },
-                    { title: 'أمان وخصوصية', desc: 'خزائن خاصة ونظام غرف اجتماعات محمي.', icon: Lock, color: 'text-emerald-400' },
-                    { title: 'ضيافة مميزة', desc: 'مشروبات وسناكس من اختيارك طوال اليوم.', icon: Coffee, color: 'text-amber-400' }
-                  ].map((item, idx) => (
-                    <div key={idx} className="bg-white/5 border border-white/5 p-6 rounded-[2rem] group hover:bg-white/10 transition-all duration-300">
-                      <item.icon className={`${item.color} mb-4 group-hover:scale-110 transition-transform`} size={28} />
-                      <h4 className="text-white font-black text-lg mb-2">{item.title}</h4>
-                      <p className="text-slate-500 text-xs font-bold leading-relaxed">{item.desc}</p>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="mt-12 pt-8 border-t border-white/5 text-center relative z-10">
-                   <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.4em]">Designed for Pioneers</p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'how_work' && (
-            <div className="w-full max-w-lg mx-auto flex flex-col animate-in fade-in slide-in-from-bottom-4 duration-500 text-right pb-20">
-              <div className="bg-[#0B0F19]/60 backdrop-blur-3xl border border-white/5 p-12 rounded-[2.5rem] relative overflow-hidden shadow-2xl">
-                <div className="absolute top-0 right-0 w-80 h-80 bg-[#1ed788]/20 rounded-full blur-[100px] translate-x-20 -translate-y-20" />
-                
-                <div className="text-center mb-16 relative z-10">
-                  <h2 className="text-4xl font-black text-white mb-4 tracking-tighter">دليل الاستخدام</h2>
-                  <p className="text-slate-400 font-bold uppercase tracking-[0.2em] text-[10px]">Cloud Membership Roadmap</p>
-                </div>
-
-                <div className="space-y-12 relative z-10">
-                  {[
-                     { title: 'تسجيل الدخول', desc: 'بمجرد كتابة الكود الخاص بك، سيبدأ العداد في العمل تلقائياً.', icon: Clock, color: 'bg-indigo-500' },
-                     { title: 'نظام محاسبة الدقيقة', desc: 'ساعة العمل بـ 10 جنيهات فقط، والحساب يتم بالدقيقة لضمان حقك.', icon: Zap, color: 'bg-blue-500' },
-                     { title: 'الحد الأدنى للدخول', desc: 'أقل تكلفة للزيارة هي 10 جنيهات فقط (أول ساعة).', icon: User, color: 'bg-emerald-500' },
-                     { title: 'طلبات الكافيتريا', desc: 'كل ما تطلبه من المتجر يضاف فوراً لفاتورتك وتتم المحاسبة عند الخروج.', icon: ShoppingBag, color: 'bg-amber-500' }
-                  ].map((item, idx) => (
-                    <div key={idx} className="flex gap-6 relative">
-                      {idx !== 3 && <div className="absolute top-12 bottom-[-48px] right-6 w-1 bg-gradient-to-b from-white/10 to-transparent rounded-full" />}
-                      <div className={`w-12 h-12 rounded-2xl ${item.color} flex items-center justify-center font-black text-white shadow-xl shadow-black/20 shrink-0 z-10 relative group-hover:scale-110 transition-transform`}>
-                        <item.icon size={22} strokeWidth={2.5} />
-                      </div>
-                      <div className="bg-white/5 border border-white/5 p-6 rounded-[2rem] flex-1 hover:bg-white/10 transition-all">
-                        <strong className="text-white text-lg font-black block mb-2">{item.title}</strong>
-                        <span className="text-sm text-slate-400 font-bold leading-relaxed block">{item.desc}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="mt-16 text-center">
-                   <button 
-                     onClick={() => setActiveTab('session')} 
-                     className="bg-emerald-500 hover:bg-emerald-600 text-white px-10 py-4 rounded-2xl font-black transition-all shadow-xl shadow-emerald-500/20 active:scale-95"
-                   >
-                     فهمت، لنبدأ الجلسة
-                   </button>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div className="absolute bottom-0 left-0 right-0 h-20 bg-[#0B0F19]/90 backdrop-blur-3xl border-t border-white/10 z-50 px-4 md:px-0 flex justify-center pb-safe">
-          <div className="w-full max-w-md h-full flex justify-between items-center px-2">
-            {[
-              { id: 'session', icon: Clock, label: 'الرئيسية' },
-              { id: 'catering', icon: ShoppingBag, label: 'المتجر', action: fetchStoreItems },
-              { id: 'profile', icon: User, label: 'بروفايلي' },
-              { id: 'about', icon: Info, label: 'من نحن' },
-              { id: 'how_work', icon: HelpCircle, label: 'الأسئلة' }
-            ].map(tab => {
-              const isActive = activeTab === tab.id;
-              return (
-                <button 
-                  key={tab.id}
-                  onClick={() => { setActiveTab(tab.id as activeTabType); if (tab.action) tab.action(); }} 
-                  className={`flex flex-col items-center justify-center w-full h-full gap-1 transition-all relative ${
-                    isActive ? 'text-[#1ed788]' : 'text-slate-500 hover:text-slate-300'
-                  }`}
-                >
-                  <tab.icon size={isActive ? 20 : 18} className={`transition-all ${isActive ? 'mb-1 drop-shadow-[0_0_8px_rgba(30,215,136,0.8)] scale-110' : ''}`} />
-                  <span className={`text-[9px] font-bold ${isActive ? 'opacity-100' : 'opacity-70'}`}>{tab.label}</span>
-                  {isActive && (
-                    <div className="absolute top-0 w-8 h-1 bg-[#1ed788] rounded-b-full shadow-[0_4px_10px_rgba(30,215,136,0.5)]" />
-                  )}
-                </button>
-              )
-            })}
-          </div>
-        </div>
-
-        {/* Floating Checkout Button */}
-        {activeTab === 'catering' && Object.keys(cart).length > 0 && (
-          <div className="fixed bottom-24 left-6 z-[60] animate-in slide-in-from-bottom-10 fade-in duration-500">
-             <button
-                onClick={handleCheckoutCart}
-                disabled={orderLoading}
-                className="group relative flex items-center gap-4 bg-indigo-600 hover:bg-indigo-500 text-white pl-6 pr-4 py-4 rounded-[2rem] shadow-[0_20px_50px_rgba(79,70,229,0.4)] transition-all active:scale-95 disabled:opacity-50"
-             >
-                <div className="absolute -inset-1 bg-gradient-to-r from-indigo-500 to-purple-500 rounded-[2rem] blur opacity-30 group-hover:opacity-50 transition-opacity" />
-                
-                <div className="relative text-right">
-                  <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-60 leading-none mb-1">تأكيد الشراء</p>
-                  <p className="text-lg font-black leading-none">إتمام الطلب</p>
-                </div>
-
-                <div className="relative w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center group-hover:rotate-12 transition-transform">
-                  {orderLoading ? (
-                    <RefreshCw className="animate-spin" size={24} />
-                  ) : (
-                    <div className="relative">
-                      <ShoppingBag size={24} />
-                      <div className="absolute -top-1 -right-1 w-5 h-5 bg-emerald-500 rounded-full flex items-center justify-center text-[10px] font-black border-2 border-indigo-600">
-                        {Object.values(cart).reduce((s, e: any) => s + e.quantity, 0)}
-                      </div>
-                    </div>
-                  )}
-                </div>
-             </button>
-          </div>
-        )}
-      </div>
+      <WorkspaceMainUI
+        session={session}
+        userCompany={userCompany}
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        elapsedTime={elapsedTime}
+        cateringItems={cateringItems}
+        cart={cart}
+        storeSearch={storeSearch}
+        setStoreSearch={setStoreSearch}
+        storeCategory={storeCategory}
+        setStoreCategory={setStoreCategory}
+        viewMode={viewMode}
+        setViewMode={setViewMode}
+        addToCart={addToCart}
+        removeFromCart={removeFromCart}
+        handleCheckoutCart={handleCheckoutCart}
+        orderLoading={orderLoading}
+        profileData={profileData}
+        totalMinutes={totalMinutes}
+        isUserLeader={isUserLeader}
+        userCompanyMembers={userCompanyMembers}
+        companyContract={companyContract}
+        activeSub={activeSub}
+        isConverting={isConverting}
+        convertPointsToCashback={convertPointsToCashback}
+        checkCompanyMembership={checkCompanyMembership}
+        setLeaderData={setLeaderData}
+        ptsPerHour={ptsPerHour}
+        cbRatio={cbRatio}
+        showCheckoutConfirm={showCheckoutConfirm}
+        setShowCheckoutConfirm={setShowCheckoutConfirm}
+        handleRequestPause={handleRequestPause}
+        handleResumeSession={handleResumeSession}
+        handleCheckoutRequest={handleCheckoutRequest}
+        fetchStoreItems={fetchStoreItems}
+      />
     );
   }
 
-  return (
-    <div className="min-h-[100dvh] bg-[#0B0F19] flex items-center justify-center font-['Cairo'] text-right p-4 relative overflow-hidden">
-      {/* Background Orbs */}
-      <div className="absolute top-[-10%] right-[-10%] w-[500px] h-[500px] bg-[#1e75b9]/20 rounded-full blur-[120px] pointer-events-none" />
-      <div className="absolute bottom-[-10%] left-[-10%] w-[500px] h-[500px] bg-[#1ed788]/15 rounded-full blur-[120px] pointer-events-none" />
-      <div className="absolute top-[30%] left-[20%] w-[300px] h-[300px] bg-[#f78c2a]/10 rounded-full blur-[100px] pointer-events-none" />
-
-      <div className="bg-[#0B0F19]/40 backdrop-blur-3xl border border-white/5 rounded-[3rem] p-8 md:p-12 w-full max-w-md relative z-10 shadow-[0_32px_64px_-12px_rgba(0,0,0,0.6)] animate-in zoom-in-95 fade-in duration-1000 ring-1 ring-white/10">
-        <div className="text-center mb-8 group">
-          <div className="w-20 h-20 bg-gradient-to-br from-white/10 to-transparent backdrop-blur-md rounded-3xl mx-auto flex items-center justify-center mb-4 border border-white/10 shadow-2xl p-4 group-hover:scale-110 group-hover:rotate-6 transition-all duration-500">
-             <img src="/logo.png" alt="Cloud Logo" className="w-full h-full object-contain filter drop-shadow-lg" />
-          </div>
-          <h1 className="text-2xl font-black text-white mb-2 tracking-tight">Cloud Co-Working</h1>
-          <div className="h-1 w-10 bg-indigo-500 mx-auto rounded-full shadow-[0_0_15px_rgba(99,102,241,0.5)]" />
-        </div>
-
-        {/* Auth Tabs */}
-        {!isForgotCode && (
-          <div className="flex p-1.5 bg-white/5 rounded-2xl border border-white/10 mb-8 relative">
-            <div 
-              className="absolute top-1.5 bottom-1.5 w-[calc(50%-6px)] bg-indigo-600 rounded-xl transition-all duration-500 ease-in-out shadow-lg shadow-indigo-600/30"
-              style={{ 
-                left: isSignUp ? '6px' : 'calc(50% + 3px)',
-                right: isSignUp ? 'calc(50% + 3px)' : '6px'
-              }}
-            />
-            <button
-              onClick={() => { setIsSignUp(false); setError(''); }}
-              className={`relative z-10 flex-1 py-3 text-sm font-black transition-colors duration-300 ${!isSignUp ? 'text-white' : 'text-slate-500 hover:text-slate-300'}`}
-            >
-              تسجيل الدخول
-            </button>
-            <button
-              onClick={() => { setIsSignUp(true); setError(''); }}
-              className={`relative z-10 flex-1 py-3 text-sm font-black transition-colors duration-300 ${isSignUp ? 'text-white' : 'text-slate-500 hover:text-slate-300'}`}
-            >
-              إنشاء حساب
-            </button>
-          </div>
-        )}
-
-        {isForgotCode && (
-           <div className="text-center mb-8">
-             <p className="text-slate-400 font-bold text-sm tracking-wide">استعادة كود الدخول</p>
-           </div>
-        )}
-
-        {isForgotCode ? (
-          <form onSubmit={handleForgotCode} className="space-y-6 animate-in slide-in-from-right-4 duration-500">
-             {error && (
-              <div className="bg-rose-500/10 border border-rose-500/20 text-rose-400 px-4 py-3 rounded-xl text-[10px] font-black tracking-widest text-center uppercase">
-                {error}
-              </div>
-            )}
-
-            <div className="space-y-2">
-              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mr-1">البريد الإلكتروني أو رقم الهاتف</label>
-              <div className="relative group">
-                <input
-                  type="text"
-                  required
-                  value={forgotEmail}
-                  onChange={(e) => setForgotEmail(e.target.value)}
-                  className="w-full h-14 bg-white/5 border border-white/10 rounded-2xl px-5 text-white font-bold focus:outline-none focus:border-[#f78c2a] focus:ring-4 focus:ring-[#f78c2a]/10 transition-all placeholder:text-slate-600"
-                  placeholder="01xxxxxxxxx أو example@mail.com"
-                  dir="auto"
-                />
-              </div>
-              <div className="flex items-start gap-2 bg-[#f78c2a]/10 p-4 rounded-2xl border border-[#f78c2a]/20 mt-4">
-                 <Info size={16} className="text-[#f78c2a] shrink-0 mt-0.5" />
-                 <p className="text-[10px] text-slate-300 font-bold leading-relaxed">
-                   تنبيه: سيتم إرسال الكود فوراً إلى بريدك الإلكتروني المسجل لدينا لتتمكن من الدخول.
-                 </p>
-              </div>
-            </div>
-
-            <div className="pt-4 flex flex-col gap-4">
-              <button
-                type="submit"
-                disabled={loading || !forgotEmail}
-                className="w-full h-16 bg-[#f78c2a] hover:bg-[#e67b1a] disabled:opacity-50 text-white rounded-2xl font-black text-lg transition-all shadow-[0_20px_40px_rgba(247,140,42,0.2)] active:scale-95 flex items-center justify-center gap-3"
-              >
-                {loading ? <RefreshCw className="animate-spin" /> : (
-                  <>
-                    <span>إرسال الكود للبريد</span>
-                    <Zap size={20} />
-                  </>
-                )}
-              </button>
-              
-              <button
-                type="button"
-                onClick={() => { setIsForgotCode(false); setError(''); }}
-                className="text-slate-500 hover:text-white text-xs font-black uppercase tracking-widest transition-colors flex items-center justify-center gap-2"
-              >
-                <ChevronLeft size={14} /> العودة لتسجيل الدخول
-              </button>
-            </div>
-          </form>
-        ) : isSignUp ? (
-          <form onSubmit={handleSignUp} className="space-y-5 animate-in slide-in-from-left-4 duration-500">
-            {error && (
-              <div className="bg-rose-500/10 border border-rose-500/20 text-rose-400 px-4 py-3 rounded-xl text-[10px] font-black tracking-widest text-center uppercase">
-                {error}
-              </div>
-            )}
-            
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mr-1">الاسم بالكامل</label>
-              <div className="relative group">
-                <User size={18} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-600 transition-colors group-focus-within:text-indigo-400" />
-                <input
-                  type="text"
-                  required
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  className="w-full h-14 bg-white/5 border border-white/10 rounded-2xl pr-12 pl-5 text-white font-bold focus:outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all placeholder:text-slate-700"
-                  placeholder="أحمد محمد"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mr-1">رقم الهاتف</label>
-                <input
-                  type="tel"
-                  required
-                  value={phoneNumber}
-                  onChange={(e) => setPhoneNumber(e.target.value)}
-                   className="w-full h-14 bg-white/5 border border-white/10 rounded-2xl px-5 text-white font-bold text-left focus:outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all placeholder:text-slate-700"
-                  placeholder="01xxxxxxxxx"
-                  dir="ltr"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mr-1">البريد الإلكتروني</label>
-                <input
-                  type="email"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full h-14 bg-white/5 border border-white/10 rounded-2xl px-5 text-white font-bold text-left focus:outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all placeholder:text-slate-700"
-                  placeholder="example@mail.com"
-                  dir="ltr"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-1.5 animate-in fade-in duration-700">
-                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mr-1">تاريخ الميلاد</label>
-                <div className="relative group/date">
-                   <div className="absolute right-4 top-1/2 -translate-y-1/2 p-2 bg-white/5 rounded-lg border border-white/10 text-indigo-400 pointer-events-none group-focus-within/date:bg-indigo-600/20 group-focus-within/date:text-indigo-200 transition-all">
-                      <CalendarDays size={16} />
-                   </div>
-                  <input
-                    type="date"
-                    value={birthDate}
-                    onChange={(e) => setBirthDate(e.target.value)}
-                    className="w-full h-14 bg-white/5 border border-white/10 rounded-2xl pr-14 pl-5 text-white font-bold text-left focus:outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all cursor-pointer [color-scheme:dark]"
-                    dir="ltr"
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mr-1">الجامعة / الكلية</label>
-                <select
-                  value={college}
-                  onChange={(e) => {
-                    setCollege(e.target.value);
-                    setShowCustomCollege(e.target.value === 'أخرى');
-                  }}
-                  className="w-full h-14 bg-[#111827] border border-white/10 rounded-2xl px-5 text-white font-bold focus:outline-none focus:border-indigo-500 transition-all appearance-none cursor-pointer"
-                >
-                  <option value="" className="bg-[#0B0F19]">اختر الجامعة</option>
-                  {colleges.map((c) => (
-                    <option key={c} value={c} className="bg-[#0B0F19]">{c}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            {showCustomCollege && (
-              <div className="space-y-1.5 animate-in slide-in-from-top-2 duration-300">
-                <label className="text-[10px] font-black text-[#f78c2a] uppercase tracking-[0.2em] block mr-1">اسم الجامعة الأخرى</label>
-                <input
-                  type="text"
-                  required
-                  value={customCollege}
-                  onChange={(e) => setCustomCollege(e.target.value)}
-                  className="w-full h-14 bg-white/5 border border-white/10 rounded-2xl px-5 text-white font-bold focus:outline-none focus:border-[#f78c2a] focus:ring-4 focus:ring-[#f78c2a]/10 transition-all placeholder:text-slate-600"
-                  placeholder="اكتب اسم الجامعة هنا..."
-                />
-              </div>
-            )}
-
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mr-1">النوع</label>
-              <div className="grid grid-cols-2 gap-3 p-1 bg-white/5 rounded-2xl border border-white/10">
-                <button
-                  type="button"
-                  onClick={() => setGender('Male')}
-                  className={`py-3 rounded-xl font-black text-sm transition-all ${gender === 'Male' ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-600/20' : 'text-slate-500 hover:text-slate-300'}`}
-                >
-                  ذكر
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setGender('Female')}
-                  className={`py-3 rounded-xl font-black text-sm transition-all ${gender === 'Female' ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-600/20' : 'text-slate-500 hover:text-slate-300'}`}
-                >
-                  أنثى
-                </button>
-              </div>
-            </div>
-
-            <div className="pt-4">
-              <button
-                type="submit"
-                disabled={loading || !fullName || !phoneNumber}
-                className="w-full bg-[#1ed788] hover:bg-[#1bbd77] disabled:opacity-50 text-[#0B0F19] rounded-2xl py-5 font-black text-xl transition-all shadow-[0_20px_40px_rgba(30,215,136,0.2)] active:scale-95 flex items-center justify-center gap-3 group"
-              >
-                {loading ? <RefreshCw className="animate-spin" size={24} /> : (
-                  <>
-                    <span>تسجيل وتأكيد الحساب</span>
-                    <CheckCircle2 size={24} className="group-hover:scale-110 transition-transform" />
-                  </>
-                )}
-              </button>
-            </div>
-          </form>
-        ) : (
-          <form onSubmit={handleLogin} className="space-y-6 animate-in slide-in-from-bottom-4 duration-500">
-            {error && (
-              <div className="bg-rose-500/10 border border-rose-500/20 text-rose-400 px-4 py-3 rounded-xl text-[10px] font-black tracking-widest text-center uppercase">
-                {error}
-              </div>
-            )}
-            
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mr-1">كود المستخدم</label>
-              <div className="relative group">
-                <Lock size={18} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-600 transition-colors group-focus-within:text-indigo-400" />
-                <input
-                  type="text"
-                  required
-                  value={userCode}
-                  onChange={(e) => setUserCode(e.target.value)}
-                  className="w-full h-14 bg-white/5 border border-white/10 rounded-2xl pr-12 pl-5 text-white font-bold text-left focus:outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all placeholder:text-slate-700 uppercase tracking-[0.2em]"
-                  placeholder="C0001"
-                  dir="ltr"
-                />
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mr-1">رقم الهاتف</label>
-              <div className="relative group">
-                <Wind size={18} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-600 transition-colors group-focus-within:text-indigo-400 rotate-90" />
-                <input
-                  type="tel"
-                  required
-                  value={phoneNumber}
-                  onChange={(e) => setPhoneNumber(e.target.value)}
-                  className="w-full h-14 bg-white/5 border border-white/10 rounded-2xl pr-12 pl-5 text-white font-bold text-left focus:outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all placeholder:text-slate-700"
-                  placeholder="01xxxxxxxxx"
-                  dir="ltr"
-                />
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-5 mt-8 text-center border-t border-white/5 pt-6">
-              <button
-                type="button"
-                onClick={() => { setIsForgotCode(true); setIsSignUp(false); setError(''); }}
-                className="text-slate-500 hover:text-white text-xs font-black uppercase tracking-widest transition-all hover:scale-105"
-              >
-                نسيت كود الدخول؟ <span className="text-[#f78c2a] underline underline-offset-8 decoration-2 ml-2">استعادة الكود</span>
-              </button>
-            </div>
-            <div className="pt-4">
-              <button
-                type="submit"
-                disabled={loading || !userCode || !phoneNumber}
-                className="w-full h-16 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 disabled:opacity-50 text-white rounded-2xl flex items-center justify-center gap-3 font-black text-xl transition-all shadow-[0_20px_40px_rgba(79,70,229,0.2)] active:scale-95 group"
-              >
-                {loading ? <RefreshCw className="animate-spin" /> : (
-                  <>
-                    <span>بدء الجلسة الآن</span>
-                    <ArrowRight size={22} className="group-hover:translate-x-[-4px] transition-transform" />
-                  </>
-                )}
-              </button>
-            </div>
-
-          </form>
-        )}
-      </div>
-      {finalBill && (
-        <Modal
-          isOpen={!!finalBill}
-          onClose={() => setFinalBill(null)}
-          className="max-w-md p-0 overflow-hidden"
-        >
-          <FinalReceiptModal bill={finalBill} onClose={() => setFinalBill(null)} />
-        </Modal>
-      )}
-
-      <Modal
-        isOpen={showSuccessModal && !!regSuccessData}
-        onClose={() => setShowSuccessModal(false)}
-        className="max-w-md md:max-w-lg p-0 overflow-visible bg-transparent border-none shadow-none"
-      >
-        <div className="bg-[#0B0F19] rounded-[2.5rem] md:rounded-[3.5rem] p-6 md:p-10 text-center space-y-6 md:space-y-10 border border-white/10 relative overflow-hidden shadow-2xl animate-in zoom-in-95 duration-500">
-          {/* High-End Background Effects */}
-          <div className="absolute -top-32 -right-32 w-80 h-80 bg-emerald-500/20 rounded-full blur-[100px] pointer-events-none" />
-          <div className="absolute -bottom-32 -left-32 w-80 h-80 bg-indigo-500/15 rounded-full blur-[100px] pointer-events-none" />
-          
-          <div className="relative z-10 w-20 h-20 md:w-24 md:h-24 bg-gradient-to-br from-emerald-500/20 to-emerald-500/5 rounded-3xl flex items-center justify-center mx-auto text-[#1ed788] animate-bounce shadow-[0_0_50px_rgba(30,215,136,0.1)] border border-emerald-500/20">
-             <CheckCircle2 size={40} md:size={48} />
-          </div>
-
-          <div className="relative z-10 space-y-4">
-             <h2 className="text-3xl md:text-5xl font-black text-white tracking-tighter leading-tight drop-shadow-sm">مرحباً بك في كلاود! ✨</h2>
-             <p className="text-slate-400 font-bold text-sm md:text-lg px-4 md:px-8 leading-relaxed">
-               أهلاً بك <span className="text-emerald-400 font-black">{regSuccessData?.name}</span>. تم تأكيد حسابك بنجاح وجاهز لبدء أول جلسة عمل لك.
-             </p>
-          </div>
-
-          <div className="relative z-10 group p-6 md:p-10 bg-white/[0.03] backdrop-blur-3xl rounded-[2rem] md:rounded-[2.5rem] border border-white/10 overflow-hidden shadow-inner translate-y-2">
-             <div className="absolute inset-0 bg-gradient-to-tr from-indigo-500/5 to-transparent pointer-events-none" />
-             <div className="space-y-4">
-                <div className="flex items-center justify-center gap-3 mb-2">
-                   <div className="h-px w-8 bg-indigo-500/30" />
-                   <p className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.3em] whitespace-nowrap">Your Access ID</p>
-                   <div className="h-px w-8 bg-indigo-500/30" />
-                </div>
-                
-                <div className="bg-black/30 py-6 md:py-10 px-4 rounded-[1.5rem] md:rounded-[2rem] border-2 border-dashed border-indigo-500/20 relative group-hover:border-indigo-500/40 transition-colors">
-                   <span className="text-5xl md:text-7xl font-black text-white font-mono tracking-[0.15em] drop-shadow-2xl">
-                     {regSuccessData?.code}
-                   </span>
-                   {/* Glow effect */}
-                   <div className="absolute inset-0 bg-indigo-500/5 blur-xl group-hover:bg-indigo-500/10 transition-all opacity-0 group-hover:opacity-100" />
-                </div>
-
-                <div className="flex items-start gap-4 text-right bg-white/5 p-4 md:p-5 rounded-2xl border border-white/5">
-                   <div className="w-8 h-8 rounded-lg bg-indigo-500/20 flex items-center justify-center text-indigo-400 shrink-0 mt-0.5">
-                      <Sparkles size={16} />
-                   </div>
-                   <p className="text-[10px] md:text-[11px] font-black text-slate-400 leading-relaxed">
-                      يرجى تصوير الشاشة (Screenshot) الآن. ستستخدم هذا البروفايل والكود في كل مرة تدخل فيها مساحة العمل.
-                   </p>
-                </div>
-             </div>
-          </div>
-
-          <div className="relative z-10 pt-4">
-            <button
-              onClick={() => {
-                setShowSuccessModal(false);
-                setUserCode(regSuccessData?.code || '');
-                setIsSignUp(false);
-              }}
-              className="w-full h-16 md:h-20 bg-white hover:bg-emerald-400 text-[#0B0F19] rounded-[1.5rem] md:rounded-[2rem] font-black text-lg md:text-2xl transition-all shadow-[0_20px_60px_rgba(0,0,0,0.3)] active:scale-95 group flex items-center justify-center gap-3 overflow-hidden relative"
-            >
-              <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:animate-[shimmer_1.5s_infinite] pointer-events-none" />
-              <span>تسجيل الدخول وبدء العمل</span>
-              <ArrowRight size={24} className="group-hover:translate-x-[-8px] transition-transform" />
-            </button>
-          </div>
-        </div>
-      </Modal>
-    </div>
-  );
-};
-
-const FinalReceiptModal = ({ bill, onClose }: { bill: any, onClose: () => void }) => {
-    const [sub, setSub] = useState<any>(null);
-    const [loading, setLoading] = useState(false);
-
-    useEffect(() => {
-        if (bill.payment_method === 'subscription' && bill.customer_id) {
-            const fetchSub = async () => {
-                setLoading(true);
-                const { data } = await supabase
-                    .from('subscriptions')
-                    .select('*')
-                    .eq('customer_id', bill.customer_id)
-                    .in('status', ['Active', 'Exhausted'])
-                    .order('created_at', { ascending: false })
-                    .limit(1)
-                    .maybeSingle();
-                if (data) setSub(data);
-                setLoading(false);
-            };
-            fetchSub();
-        }
-    }, [bill]);
-
     return (
-        <div className="space-y-8 text-right p-2">
-            {/* Header section moved to Modal title or rendered here if Modal title is empty */}
-            <div className="flex items-center gap-4 border-b border-slate-100 pb-8">
-              <div className="w-16 h-16 bg-slate-900 rounded-[1.5rem] flex items-center justify-center text-white shadow-2xl shadow-indigo-200">
-                <Receipt size={32} />
-              </div>
-              <div className="text-right">
-                <h2 className="text-3xl font-black text-slate-900 leading-tight">فاتورة الزيارة</h2>
-                <p className="text-indigo-600 text-[10px] font-black tracking-widest mt-1 uppercase">Cloud Session Receipt</p>
-              </div>
-            </div>
+      <div className="min-h-[100dvh] bg-[#0B0F19] flex items-center justify-center font-['Cairo'] text-right p-4 relative overflow-hidden">
+        {/* Background Orbs */}
+        <div className="absolute top-[-10%] right-[-10%] w-[500px] h-[500px] bg-[#1e75b9]/20 rounded-full blur-[120px] pointer-events-none" />
+        <div className="absolute bottom-[-10%] left-[-10%] w-[500px] h-[500px] bg-[#1ed788]/15 rounded-full blur-[120px] pointer-events-none" />
+        <div className="absolute top-[30%] left-[20%] w-[300px] h-[300px] bg-[#f78c2a]/10 rounded-full blur-[100px] pointer-events-none" />
 
-            <div className="space-y-8">
-              <div className="bg-slate-50/50 rounded-[2.5rem] p-8 space-y-6 relative overflow-hidden border border-slate-100">
-                <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/5 rounded-full blur-3xl -z-10" />
-                
-                {/* Client Info Section */}
-                <div className="border-b-2 border-dashed border-slate-200 pb-6 text-center">
-                  <p className="text-slate-400 text-[10px] font-black mb-2 uppercase tracking-widest">مرحباً بك مجدداً</p>
-                  <p className="text-3xl font-black text-slate-900">{bill.customers?.full_name || 'زائر متميز'}</p>
-                  <p className="text-lg font-black text-indigo-600 bg-white inline-block px-5 py-1.5 rounded-2xl shadow-sm border border-indigo-50 mt-4 font-mono">{bill.user_code}</p>
-                </div>
+        <LandingForms
+          isForgotCode={isForgotCode}
+          isLeaderPortal={isLeaderPortal}
+          isSignUp={isSignUp}
+          setIsSignUp={setIsSignUp}
+          setIsForgotCode={setIsForgotCode}
+          setIsLeaderPortal={setIsLeaderPortal}
+          setError={setError}
+          error={error}
+          loading={loading}
+          handleForgotCode={handleForgotCode}
+          handleSignUp={handleSignUp}
+          handleLogin={handleLogin}
+          handleLeaderLogin={handleLeaderLogin}
+          forgotEmail={forgotEmail}
+          setForgotEmail={setForgotEmail}
+          fullName={fullName}
+          setFullName={setFullName}
+          phoneNumber={phoneNumber}
+          setPhoneNumber={setPhoneNumber}
+          email={email}
+          setEmail={setEmail}
+          userCode={userCode}
+          setUserCode={setUserCode}
+          leaderCode={leaderCode}
+          setLeaderCode={setLeaderCode}
+        />
 
-                <div className="space-y-4 font-bold text-slate-600">
-                  <div className="flex justify-between items-center bg-white/70 p-5 rounded-2xl border border-white shadow-sm">
-                    <span className="text-[11px] font-black text-slate-400 uppercase tracking-widest">وقت الاستخدام</span>
-                    <span className="text-slate-900 font-black text-lg">
-                       <span className="text-indigo-600">{Math.floor((bill.total_minutes || 0) / 60)}</span>h <span className="text-indigo-600">{Number(bill.total_minutes || 0) % 60}</span>m
-                    </span>
-                  </div>
-                  
-                  <div className="flex justify-between items-center bg-white/70 p-5 rounded-2xl border border-white shadow-sm text-right">
-                    <span className="text-[11px] font-black text-slate-400 uppercase tracking-widest">تكلفة الجلسة</span>
-                    <span className={`font-black text-lg ${bill.payment_method === 'subscription' ? 'text-emerald-600' : 'text-slate-900'}`}>
-                       {bill.payment_method === 'subscription' ? '✓ مخصوم من الاشتراك' : `${Number(bill.total_amount || 0) - (Number(bill.catering_amount) || 0)} EGP`}
-                    </span>
-                  </div>
+        {finalBill && (
+          <Modal
+            isOpen={!!finalBill}
+            onClose={() => setFinalBill(null)}
+            className="max-w-md p-0 overflow-hidden"
+          >
+            <FinalReceiptModal bill={finalBill} onClose={() => setFinalBill(null)} companyName={userCompany?.name} />
+          </Modal>
+        )}
 
-                  {bill.payment_method === 'subscription' && (
-                    <div className="bg-slate-900 text-white p-8 rounded-[2rem] shadow-2xl relative overflow-hidden group">
-                      <div className="absolute top-0 right-0 w-40 h-40 bg-indigo-500/20 rounded-full blur-[60px] animate-pulse" />
-                      <div className="flex justify-between items-center relative z-10">
-                        <div className="text-left">
-                          <p className="text-3xl font-black text-white">{loading ? '...' : sub ? (sub.total_hours - sub.used_hours).toFixed(1) : '0.0'} <span className="text-[10px] opacity-40 uppercase tracking-widest ml-1">H Left</span></p>
-                          <p className="text-[9px] font-black text-indigo-300 uppercase tracking-widest mt-1">
-                            Expires: {sub ? new Date(sub.end_date).toLocaleDateString('ar-EG') : '...'}
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <div className="flex items-center gap-2 justify-end mb-1">
-                            <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">Subscription</p>
-                            <Sparkles size={12} className="text-amber-400" />
-                          </div>
-                          <p className="text-sm font-black whitespace-nowrap">{(Number(bill.total_minutes || 0) / 60).toFixed(2)}h consumed</p>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                  
-                  <div className="flex justify-between items-center bg-white/70 p-5 rounded-2xl border border-white shadow-sm">
-                    <span className="text-[11px] font-black text-slate-400 uppercase tracking-widest">رصيد الكافيتريا</span>
-                    <span className="text-slate-900 font-black text-lg">{bill.catering_amount || 0} <span className="text-xs opacity-30">EGP</span></span>
-                  </div>
-                </div>
-
-                {bill.orders && bill.orders.length > 0 && (
-                  <div className="mt-10 pt-8 border-t-2 border-dashed border-slate-200">
-                    <p className="text-[10px] font-black text-slate-400 mb-6 uppercase tracking-[0.3em] text-center">أصناف الضيافة</p>
-                    <div className="space-y-3">
-                      {bill.orders.map((o: any, idx: number) => (
-                        <div key={idx} className="flex justify-between items-center text-xs font-black bg-white/80 backdrop-blur-sm rounded-[1.25rem] p-4 border border-white shadow-sm gap-4 group/item hover:bg-white transition-colors">
-                          <div className="flex items-center gap-3">
-                            {o.image_url ? (
-                              <img src={o.image_url} className="w-10 h-10 rounded-xl object-cover ring-2 ring-slate-100" alt="" />
-                            ) : (
-                                <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center text-slate-300">
-                                    <ShoppingBag size={18} />
-                                </div>
-                            )}
-                            <div className="text-right">
-                                <span className="text-slate-800 text-sm block">{o.name}</span>
-                                <span className="text-indigo-400 text-[10px] uppercase">Quantity x{o.quantity}</span>
-                            </div>
-                          </div>
-                          <span className="text-slate-900 font-mono text-base">{o.price} <span className="text-[8px] opacity-30">EGP</span></span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                
-                <div className="pt-10 mt-6 border-t border-slate-200 flex flex-col items-center gap-2">
-                  <span className="text-slate-400 text-[11px] font-black uppercase tracking-[0.2em]">المبلغ المستحق للدفع</span>
-                  <div className="relative">
-                    <div className="absolute inset-x-0 bottom-1 h-3 bg-emerald-500/10 -rotate-1 rounded-full blur-[2px]" />
-                    <p className="text-6xl font-black text-emerald-600 relative z-10 italic">
-                      {bill.payment_method === 'subscription' ? bill.catering_amount : bill.total_amount} 
-                      <span className="text-xl opacity-30 ml-3 not-italic">EGP</span>
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="pt-4">
-                <Button
-                  onClick={onClose}
-                  className="w-full h-20 bg-slate-900 text-white font-black rounded-[2rem] shadow-2xl hover:bg-black active:scale-95 transition-all text-xl flex items-center justify-center gap-4 group"
-                >
-                  <div className="w-10 h-10 rounded-xl bg-emerald-500 flex items-center justify-center shadow-lg group-hover:rotate-12 transition-transform">
-                    <CheckCircle2 size={24} className="text-white" />
-                  </div>
-                  <span>إنهاء الحضور الآن</span>
-                </Button>
-              </div>
-            </div>
-        </div>
+        <RegistrationSuccessModal 
+          isOpen={showSuccessModal} 
+          onClose={() => setShowSuccessModal(false)} 
+          regSuccessData={regSuccessData}
+          onAction={(code) => {
+            setShowSuccessModal(false);
+            setUserCode(code);
+            setIsSignUp(false);
+          }}
+        />
+      </div>
     );
+
 };
 
