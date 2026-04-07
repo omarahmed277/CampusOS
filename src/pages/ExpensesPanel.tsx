@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Plus, Search, Filter, Receipt, Trash2, Calendar, Tag, CreditCard, X, Save, ArrowDownRight,
   Sparkles, Truck, Coffee, Wrench, Zap, PenTool, Users, Package, Megaphone, Home, Heart, 
-  MoreHorizontal, Wallet, Landmark, Image as ImageIcon, History, AlertCircle, ShoppingCart, Edit 
+  MoreHorizontal, Wallet, Landmark, Image as ImageIcon, History, AlertCircle, ShoppingCart, Edit, Layers 
 } from 'lucide-react';
 import { Button, Card, CardHeader, CardTitle, CardDescription, CardContent, Input, Modal } from '../components/ui';
 import { supabase } from '../lib/supabase';
@@ -510,7 +510,7 @@ export const ExpensesPanel = ({ branchId }: { branchId?: string }) => {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 {/* Amount or Itemized List */}
-                <div className="space-y-6">
+                <div className={`space-y-6 ${(newExpense.category === 'مطبخ وبوفيه' || newExpense.category === 'أدوات مكتبية') ? 'md:col-span-2' : ''}`}>
                   {(newExpense.category === 'مطبخ وبوفيه' || newExpense.category === 'أدوات مكتبية') ? (
                     <div className="space-y-4 bg-slate-50/50 p-6 rounded-[2rem] border border-slate-100">
                       <div className="flex justify-between items-center mb-4">
@@ -527,88 +527,17 @@ export const ExpensesPanel = ({ branchId }: { branchId?: string }) => {
 
                       <div className="space-y-4">
                         {newExpense.items.map((item, idx) => (
-                          <div key={idx} className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm relative animate-in slide-in-from-right-2 duration-300">
-                            <button onClick={() => removeItem(idx)} className="absolute -top-2 -right-2 w-6 h-6 bg-rose-500 text-white rounded-full flex items-center justify-center shadow-sm hover:bg-rose-600 transition-colors z-30">
-                              <X size={12} />
+                          <div key={idx} className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm relative animate-in slide-in-from-right-2 duration-300 group overflow-hidden">
+                            <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-indigo-50/50 to-transparent -z-10 rounded-bl-[3rem]"/>
+                            {/* Delete Button */}
+                            <button onClick={() => removeItem(idx)} className="absolute top-4 left-4 w-8 h-8 bg-slate-50 text-slate-400 hover:bg-rose-50 hover:text-rose-600 rounded-xl flex items-center justify-center transition-colors z-30 shadow-sm">
+                              <X size={14} />
                             </button>
-                            <div className="flex gap-4">
-                              <div className="flex-1 space-y-4">
-                                <Input
-                                  value={item.name}
-                                  onChange={(e) => updateItem(idx, 'name', e.target.value)}
-                                  placeholder="اسم الصنف (مثلاً: سكر)"
-                                  className="h-12 text-sm font-bold border-2 border-slate-50 bg-slate-50/30 rounded-xl focus:bg-white transition-all text-right"
-                                />
-                                <div className="grid grid-cols-4 gap-2">
-                                  <div className="space-y-1">
-                                    <label className="text-[8px] font-black text-slate-400 block px-1 text-right">سعر الكرتونة</label>
-                                    <Input
-                                      type="text"
-                                      inputMode="decimal"
-                                      value={item.price}
-                                      onChange={(e) => {
-                                          const val = e.target.value.replace(/[^0-9.]/g, '');
-                                          const newItems = [...newExpense.items];
-                                          newItems[idx].price = val;
-                                          // Auto-suggest selling price (cost * 1.5)
-                                          const ppu = parseFloat(item.piecesPerUnit) || 1;
-                                          const suggested = (parseFloat(val) / ppu * 1.5).toFixed(2);
-                                          newItems[idx].sellingPrice = suggested;
-                                          setNewExpense({ ...newExpense, items: newItems });
-                                      }}
-                                      placeholder="السعر"
-                                      className="h-10 text-[10px] font-black border-none bg-slate-50 rounded-lg text-center"
-                                    />
-                                  </div>
-                                  <div className="space-y-1">
-                                    <label className="text-[8px] font-black text-slate-400 block px-1 text-right font-['Cairo']">عدد الكراتين</label>
-                                    <Input
-                                      type="text"
-                                      inputMode="decimal"
-                                      value={item.qty}
-                                      onChange={(e) => updateItem(idx, 'qty', e.target.value.replace(/[^0-9.]/g, ''))}
-                                      placeholder="الكمية"
-                                      className="h-10 text-[10px] font-black border-none bg-slate-50 rounded-lg text-center"
-                                    />
-                                  </div>
-                                  <div className="space-y-1">
-                                     <label className="text-[8px] font-black text-slate-400 block px-1 text-right">نوع الوحدة</label>
-                                     <select
-                                        value={item.unit}
-                                        onChange={(e) => updateItem(idx, 'unit', e.target.value)}
-                                        className="w-full h-10 rounded-lg border-none bg-slate-50 px-1 text-[9px] font-black outline-none"
-                                      >
-                                        <option>كرتونة</option>
-                                        <option>باكتة</option>
-                                        <option>علبة</option>
-                                        <option>قطعة</option>
-                                      </select>
-                                  </div>
-                                  <div className="space-y-1">
-                                    <label className="text-[8px] font-black text-indigo-400 block px-1 text-right">قطع / {item.unit}</label>
-                                    <Input
-                                      type="text"
-                                      inputMode="numeric"
-                                      value={item.piecesPerUnit}
-                                      onChange={(e) => {
-                                          const val = e.target.value.replace(/[^0-9]/g, '');
-                                          const newItems = [...newExpense.items];
-                                          newItems[idx].piecesPerUnit = val;
-                                          // Update suggestion
-                                          const cost = parseFloat(item.price) || 0;
-                                          const suggested = (cost / (parseFloat(val) || 1) * 1.5).toFixed(2);
-                                          newItems[idx].sellingPrice = suggested;
-                                          setNewExpense({ ...newExpense, items: newItems });
-                                      }}
-                                      placeholder="قطع/و"
-                                      className="h-10 text-[10px] font-black border-none bg-indigo-50 text-indigo-600 rounded-lg text-center"
-                                    />
-                                  </div>
-                                </div>
-                              </div>
 
-                              {/* Product Image Upload per Item */}
-                              <div className="w-24 h-24 bg-slate-50 border-2 border-dashed border-slate-200 rounded-[1.5rem] flex items-center justify-center overflow-hidden relative group cursor-pointer shrink-0 mt-2">
+                            <div className="flex flex-col md:flex-row gap-6">
+                              {/* Left side: Image uploader */}
+                              <div className="w-full md:w-32 shrink-0">
+                                <div className="w-full aspect-square bg-slate-50 hover:bg-indigo-50/50 border-2 border-dashed border-slate-200 hover:border-indigo-300 rounded-[1.5rem] flex items-center justify-center relative transition-all group/img cursor-pointer">
                                   <input 
                                       type="file" 
                                       accept="image/*" 
@@ -641,51 +570,130 @@ export const ExpensesPanel = ({ branchId }: { branchId?: string }) => {
                                       }}
                                   />
                                   {item.image_url ? (
-                                      <img src={item.image_url} className="w-full h-full object-cover" />
+                                      <img src={item.image_url} className="w-full h-full object-cover rounded-[1.3rem] shadow-sm" />
                                   ) : (
                                       <div className="text-center">
-                                          <ImageIcon size={24} className="text-slate-300 mx-auto" />
-                                          <p className="text-[7px] text-slate-400 mt-1 font-black">صورة المنتج</p>
+                                          <div className="w-10 h-10 bg-white rounded-full shadow-sm flex items-center justify-center mx-auto mb-2 text-slate-300 group-hover/img:text-indigo-400 transition-colors">
+                                            <ImageIcon size={20} />
+                                          </div>
+                                          <p className="text-[9px] text-slate-400 font-black">صورة المنتج</p>
                                       </div>
                                   )}
-                                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity z-10">
-                                      <Plus size={16} className="text-white" />
+                                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/img:opacity-100 rounded-[1.3rem] flex items-center justify-center transition-opacity z-10 pointer-events-none">
+                                      <Plus size={20} className="text-white" />
                                   </div>
+                                </div>
+                              </div>
+                              
+                              <div className="flex-1 space-y-4">
+                                {/* Row 1: Name & Unit Dropdown */}
+                                <div className="flex gap-3">
+                                  <div className="flex-1">
+                                    <Input
+                                      value={item.name}
+                                      onChange={(e) => updateItem(idx, 'name', e.target.value)}
+                                      placeholder="اسم الصنف (مثال: قهوة اسبريسو)"
+                                      className="h-14 text-sm font-black border-2 border-slate-100 bg-slate-50/50 rounded-2xl focus:bg-white focus:border-indigo-200 transition-all text-right px-4"
+                                    />
+                                  </div>
+                                  <div className="w-32 shrink-0">
+                                     <select
+                                        value={item.unit}
+                                        onChange={(e) => updateItem(idx, 'unit', e.target.value)}
+                                        className="w-full h-14 rounded-2xl border-2 border-slate-100 bg-slate-50/50 px-4 text-xs font-black outline-none focus:bg-white focus:border-indigo-200 text-slate-600 transition-all"
+                                      >
+                                        <option>كرتونة</option>
+                                        <option>باكتة</option>
+                                        <option>علبة</option>
+                                        <option>قطعة</option>
+                                      </select>
+                                  </div>
+                                </div>
+
+                                {/* Row 2: Purchasing Matrix */}
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                  <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 focus-within:border-indigo-200 focus-within:bg-white transition-all">
+                                    <label className="text-[9px] font-black tracking-widest text-slate-400 mb-2 block">الكمية المشتراة</label>
+                                    <div className="flex items-center gap-3">
+                                      <Package size={16} className="text-emerald-500" />
+                                      <input
+                                        type="text" inputMode="decimal"
+                                        value={item.qty}
+                                        onChange={(e) => updateItem(idx, 'qty', e.target.value.replace(/[^0-9.]/g, ''))}
+                                        className="w-full bg-transparent border-none outline-none font-black text-sm text-slate-700 placeholder-slate-300"
+                                        placeholder="0"
+                                      />
+                                    </div>
+                                  </div>
+                                  <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 focus-within:border-indigo-200 focus-within:bg-white transition-all">
+                                    <label className="text-[9px] font-black tracking-widest text-slate-400 mb-2 block">سعر الشراء (للوحدة)</label>
+                                    <div className="flex items-center gap-3">
+                                      <span className="text-xs font-black text-rose-500">ج.م</span>
+                                      <input
+                                        type="text" inputMode="decimal"
+                                        value={item.price}
+                                        onChange={(e) => {
+                                            const val = e.target.value.replace(/[^0-9.]/g, '');
+                                            const newItems = [...newExpense.items];
+                                            newItems[idx].price = val;
+                                            const ppu = parseFloat(item.piecesPerUnit) || 1;
+                                            const suggested = (parseFloat(val) / ppu * 1.5).toFixed(2);
+                                            newItems[idx].sellingPrice = suggested;
+                                            setNewExpense({ ...newExpense, items: newItems });
+                                        }}
+                                        className="w-full bg-transparent border-none outline-none font-black text-sm text-slate-700"
+                                        placeholder="0.00"
+                                      />
+                                    </div>
+                                  </div>
+                                  <div className="bg-indigo-50 p-3 rounded-2xl border border-indigo-100 relative overflow-hidden focus-within:border-indigo-300 focus-within:bg-white transition-all">
+                                     <div className="absolute right-0 top-0 bottom-0 w-1 bg-indigo-500 rounded-r-2xl" />
+                                     <label className="text-[9px] font-black tracking-widest text-indigo-400 mb-2 block mr-2">عدد القطع بداخلها</label>
+                                     <div className="flex items-center gap-3 mr-2">
+                                      <Layers size={16} className="text-indigo-500" />
+                                      <input
+                                        type="text" inputMode="numeric"
+                                        value={item.piecesPerUnit}
+                                        onChange={(e) => {
+                                            const val = e.target.value.replace(/[^0-9]/g, '');
+                                            const newItems = [...newExpense.items];
+                                            newItems[idx].piecesPerUnit = val;
+                                            const cost = parseFloat(item.price) || 0;
+                                            const suggested = (cost / (parseFloat(val) || 1) * 1.5).toFixed(2);
+                                            newItems[idx].sellingPrice = suggested;
+                                            setNewExpense({ ...newExpense, items: newItems });
+                                        }}
+                                        className="w-full bg-transparent border-none outline-none font-black text-sm text-indigo-700"
+                                        placeholder="1"
+                                      />
+                                     </div>
+                                  </div>
+                                </div>
                               </div>
                             </div>
-                            
-                            <div className="mt-3 space-y-3">
-                              {/* Live math summary */}
-                              <div className="flex justify-between items-center bg-indigo-50/20 px-4 py-2 rounded-xl border border-dashed border-indigo-100">
-                                <div className="flex items-center gap-2 text-[10px] font-black text-slate-500">
-                                  <span>{item.qty || '0'} {item.unit}</span>
-                                  <span>×</span>
-                                  <span>{item.piecesPerUnit || '1'} قطعة</span>
-                                  <span>=</span>
-                                  <span className="text-indigo-600">{(parseFloat(item.qty || '0') * parseFloat(item.piecesPerUnit || '1')) || 0} قطعة إجمالي</span>
+                            {/* Live Math Footer per Item */}
+                            <div className="mt-5 pt-4 border-t border-slate-100 flex flex-col sm:flex-row justify-between items-center gap-4">
+                              <div className="flex flex-wrap gap-2 w-full sm:w-auto">
+                                <div className="text-[10px] font-black bg-slate-50 text-slate-500 px-4 py-2 rounded-xl border border-slate-100 flex-1 sm:flex-none text-center">
+                                   إجمالي القطع: <span className="text-emerald-600 mx-1">{(parseFloat(item.qty||'0') * parseFloat(item.piecesPerUnit||'1'))||0}</span> قطعة
                                 </div>
-                                <div className="text-[9px] font-bold text-slate-400">
-                                   التكلفة: {((parseFloat(item.price || '0') / parseFloat(item.piecesPerUnit || '1')) || 0).toFixed(2)} ج/قطعة
+                                <div className="text-[10px] font-black bg-slate-50 text-slate-500 px-4 py-2 rounded-xl border border-slate-100 flex-1 sm:flex-none text-center">
+                                   تكلفة القطعة عليك: <span className="text-rose-600 mx-1">{((parseFloat(item.price||'0') / parseFloat(item.piecesPerUnit||'1'))||0).toFixed(2)}</span> ج.م
                                 </div>
                               </div>
 
-                              {/* Custom Selling Price Input */}
-                              <div className="flex items-center gap-4 bg-emerald-50/50 p-3 rounded-2xl border border-emerald-100">
-                                  <div className="flex-1 text-right">
-                                      <p className="text-[9px] font-black text-emerald-600 mb-1">المقترح (ربح 50%): {((parseFloat(item.price || '0') / parseFloat(item.piecesPerUnit || '1')) * 1.5).toFixed(2)} جينه</p>
-                                      <p className="text-[8px] text-slate-400">سعر البيع المعروض للمستخدم في الكاترينج</p>
-                                  </div>
-                                  <div className="w-24 relative group">
-                                      <Input
-                                          type="text"
-                                          inputMode="decimal"
-                                          value={item.sellingPrice}
-                                          onChange={(e) => updateItem(idx, 'sellingPrice', e.target.value.replace(/[^0-9.]/g, ''))}
-                                          className="h-10 text-xs font-black text-center bg-white border-2 border-emerald-200 rounded-xl focus:border-emerald-500 transition-all text-emerald-700"
-                                          placeholder="سعر البيع"
-                                      />
-                                      <div className="absolute -top-2 left-1/2 -translate-x-1/2 bg-emerald-500 text-white text-[7px] px-2 py-0.5 rounded-full font-black uppercase tracking-tighter">سعر البيع</div>
-                                  </div>
+                              <div className="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-end">
+                                 <label className="text-[10px] font-black text-slate-500 hidden sm:block">سعر البيع للعميل:</label>
+                                 <div className="relative group/price">
+                                    <input
+                                      type="text" inputMode="decimal"
+                                      value={item.sellingPrice}
+                                      onChange={(e) => updateItem(idx, 'sellingPrice', e.target.value.replace(/[^0-9.]/g, ''))}
+                                      className="w-full sm:w-36 h-12 px-4 pt-4 pb-1 text-center bg-emerald-50 border-2 border-emerald-100 rounded-xl font-black text-emerald-700 focus:outline-none focus:border-emerald-400 focus:bg-white transition-all shadow-sm"
+                                      placeholder="0.00"
+                                    />
+                                    <span className="absolute top-1 right-3 text-[7px] font-black text-emerald-500 uppercase tracking-widest opacity-80">سعر البيع</span>
+                                 </div>
                               </div>
                             </div>
                           </div>
@@ -731,7 +739,7 @@ export const ExpensesPanel = ({ branchId }: { branchId?: string }) => {
                 </div>
 
                 {/* Logistics & Metadata */}
-                <div className="space-y-8">
+                <div className={`space-y-8 ${(newExpense.category === 'مطبخ وبوفيه' || newExpense.category === 'أدوات مكتبية') ? 'md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-8 space-y-0' : ''}`}>
                   <div className="space-y-4">
                     <label className="text-xs font-black text-slate-400 uppercase tracking-widest block mr-2">بيانات الدفع والتاريخ</label>
                     <div className="grid grid-cols-1 gap-4">

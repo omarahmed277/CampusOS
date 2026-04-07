@@ -42,7 +42,7 @@ export const InventoryPanel = ({ branchId }: { branchId?: string }) => {
     const fetchInventory = async () => {
         try {
             setLoading(true);
-            let query = supabase.from('inventory').select('*');
+            let query = supabase.from('inventory').select('*, catering_items(is_active)');
             if (branchId) query = query.eq('branch_id', branchId);
             
             const { data: invData, error: invError } = await query;
@@ -237,7 +237,8 @@ export const InventoryPanel = ({ branchId }: { branchId?: string }) => {
     const handleEditClick = (item: any) => {
         const itemCopy = { 
             ...item, 
-            selling_price: item.selling_price || item.catering_items?.[0]?.price || 0 
+            selling_price: item.selling_price || item.catering_items?.[0]?.price || 0,
+            is_active: Array.isArray(item.catering_items) && item.catering_items.length > 0 ? item.catering_items[0].is_active : true
         };
         setEditingItem(itemCopy);
         setBoxCostStr((Number(itemCopy.price) * (itemCopy.pieces_per_unit || 1)).toString());
@@ -286,7 +287,7 @@ export const InventoryPanel = ({ branchId }: { branchId?: string }) => {
                 name: editingItem.name,
                 price: sellingPriceVal,
                 category: editingItem.category === 'مشروبات' ? 'beverages' : (editingItem.category === 'سناكس' ? 'snacks' : 'office'),
-                is_active: true
+                is_active: editingItem.is_active !== undefined ? editingItem.is_active : true
             }).eq('inventory_id', targetId);
 
             await fetchInventory();
@@ -779,7 +780,17 @@ export const InventoryPanel = ({ branchId }: { branchId?: string }) => {
                                             {(editingItem.price || 0).toFixed(2)}
                                         </div>
                                     </div>
-                                 <div>
+                                     <div>
+                                        <label className="block text-[10px] font-bold text-slate-400 mb-1 px-1">حالة المنتج</label>
+                                        <button
+                                            type="button"
+                                            onClick={() => setEditingItem({ ...editingItem, is_active: !editingItem.is_active })}
+                                            className={`w-full border-2 rounded-xl px-4 py-1.5 text-center font-bold text-xs mt-1.5 transition-all shadow-sm ${editingItem.is_active ? 'border-emerald-200 bg-emerald-50 text-emerald-600' : 'border-rose-200 bg-rose-50 text-rose-600'}`}
+                                        >
+                                            {editingItem.is_active ? 'متاح للبيع' : 'موقوف / منتهي'}
+                                        </button>
+                                     </div>
+                                 <div className="col-span-2">
                                     <label className="block text-[10px] font-bold text-slate-400 mb-1 px-1">رابط الصورة</label>
                                     <input 
                                         type="text" 

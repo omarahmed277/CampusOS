@@ -39,6 +39,61 @@ export const CateringStore = ({
           <h2 className="text-3xl font-black text-white tracking-tight"> Cloud Store </h2>
           <p className="text-slate-400 text-xs font-bold uppercase tracking-widest">Cloud Store & Catering</p>
         </div>
+
+        {session.orders?.length > 0 && (
+            <div className="mb-12 pb-10 border-b-2 border-dashed border-white/5 text-right animate-in fade-in slide-in-from-top-10 duration-1000">
+                <div className="flex flex-col items-center mb-8">
+                  <div className="w-16 h-16 bg-indigo-500/10 text-indigo-400 rounded-2xl flex items-center justify-center mb-4 shadow-2xl border border-white/5">
+                    <Receipt size={28}/>
+                  </div>
+                  <h3 className="font-black text-white text-2xl tracking-tight">قائمة الطلبات المستلمة</h3>
+                  <p className="text-slate-500 text-[10px] font-extrabold uppercase tracking-[0.3em] mt-2 opacity-60">Verified Order Summary</p>
+                </div>
+
+                <div className="bg-[#0B0F19]/60 backdrop-blur-xl rounded-[2.5rem] p-8 border border-white/5 shadow-[inset_0_2px_40px_rgba(0,0,0,0.4)] relative overflow-hidden">
+                    <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-600/5 rounded-full blur-[80px] -z-10" />
+                    <div className="space-y-4">
+                        {session.orders.map((o: any, idx: number) => (
+                            <div key={idx} className="flex justify-between items-center group/order">
+                              <div className="flex items-center gap-4">
+                                <div className="w-10 h-10 rounded-xl bg-white/5 flex flex-col items-center justify-center text-[10px] font-black text-white border border-white/5 group-hover/order:bg-indigo-600 transition-colors">
+                                  <span>{o.quantity}</span>
+                                  <span className="opacity-40 text-[6px] uppercase leading-none mt-0.5">Qty</span>
+                                </div>
+                                <div className="text-right">
+                                   <p className="text-white text-sm font-black group-hover/order:text-indigo-300 transition-colors uppercase tracking-tight">{o.name}</p>
+                                   <p className="text-[9px] text-slate-500 font-bold mt-0.5 underline decoration-indigo-500/30 underline-offset-4">{o.price} EGP per unit</p>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <span className="text-emerald-400 font-mono text-base font-black tracking-tighter">{(o.price * o.quantity).toFixed(2)}</span>
+                                <span className="text-[7px] text-slate-500 font-black rotate-90">EGP</span>
+                              </div>
+                            </div>
+                        ))}
+                    </div>
+                    
+                    <div className="mt-8 pt-6 border-t border-white/10 flex justify-between items-center">
+                        <div className="text-right">
+                          <p className="text-slate-500 text-[9px] font-black uppercase tracking-widest mb-1.5 flex items-center gap-2">
+                             <MapPin size={8} className="text-indigo-400" /> الفرع الرئيسي
+                          </p>
+                          <p className="text-3xl font-black text-white leading-none">
+                            {(session.catering_amount || 0).toLocaleString()}
+                            <span className="text-[10px] text-indigo-400 mr-2 font-bold uppercase tracking-tighter">Total EGP</span>
+                          </p>
+                        </div>
+                        <div className="bg-white/5 border border-white/10 rounded-xl px-4 py-2 flex flex-col items-center">
+                           <p className="text-[7px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">Status</p>
+                           <div className="flex items-center gap-1.5 text-emerald-400">
+                              <CheckCircle2 size={14} />
+                              <span className="text-[10px] font-black uppercase">Confirmed</span>
+                           </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        )}
         
         {/* Search & Categories Bar */}
         <div className="space-y-4">
@@ -343,62 +398,7 @@ export const CateringStore = ({
       }
         </div>
         
-        {session.orders?.length > 0 && (
-            <div className="mt-24 pt-12 border-t-2 border-dashed border-white/5 text-right animate-in fade-in slide-in-from-bottom-10 duration-1000">
-                <div className="flex flex-col items-center mb-10">
-                  <div className="w-20 h-20 bg-indigo-500/10 text-indigo-400 rounded-[2rem] flex items-center justify-center mb-4 shadow-2xl shadow-indigo-500/10 border border-white/5">
-                    <Receipt size={36}/>
-                  </div>
-                  <h3 className="font-black text-white text-3xl tracking-tight">قائمة الطلبات المستلمة</h3>
-                  <p className="text-slate-500 text-[10px] font-extrabold uppercase tracking-[0.3em] mt-3 opacity-60">Verified Order Summary</p>
-                </div>
 
-                <div className="bg-[#0B0F19]/60 backdrop-blur-xl rounded-[3rem] p-10 border border-white/5 shadow-[inset_0_2px_40px_rgba(0,0,0,0.4)] relative overflow-hidden">
-                    <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-600/5 rounded-full blur-[80px] -z-10" />
-                    <div className="space-y-6">
-                        {session.orders.map((o: any, idx: number) => (
-                            <div key={idx} className="flex justify-between items-center group/order">
-                              <div className="flex items-center gap-5">
-                                <div className="w-12 h-12 rounded-2xl bg-white/5 flex flex-col items-center justify-center text-[10px] font-black text-white border border-white/5 group-hover/order:bg-indigo-600 transition-colors">
-                                  <span>{o.quantity}</span>
-                                  <span className="opacity-40 text-[7px] uppercase leading-none mt-0.5">Qty</span>
-                                </div>
-                                <div className="text-right">
-                                   <p className="text-white text-base font-black group-hover/order:text-indigo-300 transition-colors uppercase tracking-tight">{o.name}</p>
-                                   <p className="text-[10px] text-slate-500 font-bold mt-0.5 underline decoration-indigo-500/30 underline-offset-4">{o.price} EGP per unit</p>
-                                </div>
-                              </div>
-                              <div className="flex items-center gap-1">
-                                <span className="text-emerald-400 font-mono text-lg font-black tracking-tighter">{(o.price * o.quantity).toFixed(2)}</span>
-                                <span className="text-[8px] text-slate-500 font-black rotate-90">EGP</span>
-                              </div>
-                            </div>
-                        ))}
-                    </div>
-                    
-                    <div className="mt-12 pt-8 border-t border-white/10 flex justify-between items-center">
-                        <div className="text-right">
-                          <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-2 flex items-center gap-2">
-                             <MapPin size={10} className="text-indigo-400" /> الفرع الرئيسي
-                          </p>
-                          <p className="text-4xl font-black text-white leading-none">
-                            {(session.catering_amount || 0).toLocaleString()}
-                            <span className="text-xs text-indigo-400 mr-3 font-bold uppercase tracking-tighter">Total EGP</span>
-                          </p>
-                        </div>
-                        <div className="bg-white/5 border border-white/10 rounded-2xl px-6 py-3 flex flex-col items-center">
-                           <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">Status</p>
-                           <div className="flex items-center gap-2 text-emerald-400">
-                              <CheckCircle2 size={16} />
-                              <span className="text-xs font-black uppercase">Confirmed</span>
-                           </div>
-                        </div>
-                    </div>
-                </div>
-                
-                <p className="text-center text-slate-600 text-[10px] font-bold mt-12 tracking-[0.3em] uppercase opacity-40">Thank you for visiting Cloud Space</p>
-            </div>
-        )}
     </div>
   );
 };

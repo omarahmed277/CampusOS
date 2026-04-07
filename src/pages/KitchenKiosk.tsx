@@ -86,11 +86,19 @@ export const KitchenKiosk = () => {
       // 2. Get Products (Kitchen Only)
       const { data: invItems } = await supabase
         .from('inventory')
-        .select('*')
+        .select('*, catering_items(is_active)')
+        .gt('stock', 0)
         .in('category', ['مطبخ وبوفيه', 'مشروبات', 'سناكس'])
         .order('name');
       
-      if (invItems) setProducts(invItems);
+      if (invItems) {
+          const activeItems = invItems.filter((item: any) => {
+              const hasCatering = Array.isArray(item.catering_items) && item.catering_items.length > 0;
+              if (hasCatering && item.catering_items[0].is_active === false) return false;
+              return true;
+          });
+          setProducts(activeItems);
+      }
     } catch (err) {
       console.error(err);
     } finally {
