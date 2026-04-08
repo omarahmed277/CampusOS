@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Clock, CheckCircle2, AlertCircle, RefreshCw, X, Receipt, Users2, Sparkles, Plus, Lock, Briefcase } from 'lucide-react';
+import { Clock, CheckCircle2, AlertCircle, RefreshCw, X, Receipt, Users2, Sparkles, Plus, Lock, Briefcase, Layout } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { calculateSessionPrice } from '../lib/pricing';
 import { Modal } from '../components/ui';
@@ -15,6 +15,7 @@ interface Session {
   catering_amount: number;
   orders: any[];
   customers?: { full_name: string };
+  services?: { code: string; name_ar: string; color?: string };
 }
 
 export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
@@ -115,7 +116,7 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
     try {
       const { data, error } = await (supabase as any)
         .from('workspace_sessions')
-        .select(`*, services(code, name_ar), customers(full_name, loyalty_points, cashback_balance, college, company_members(*, companies(*)), subscriptions(*))`)
+        .select(`*, services(code, name_ar, color), customers(full_name, loyalty_points, cashback_balance, college, company_members(*, companies(*)), subscriptions(*))`)
         .eq('branch_id', branchId || '')
         .in('status', ['active', 'checkout_requested', 'pause_requested', 'paused', 'resume_requested'])
         .order('start_time', { ascending: false });
@@ -751,7 +752,17 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
                           <div className="text-right">
                             <div className="font-extrabold text-slate-900 text-lg flex items-center gap-2">
                               {session.services ? (
-                                <span className="text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-lg border border-indigo-100">{session.services.code}</span>
+                                <div 
+                                  className="flex items-center gap-2 px-3 py-1.5 rounded-xl border-2 font-black text-xs shadow-sm transition-all hover:scale-105"
+                                  style={{ 
+                                    backgroundColor: `${session.services.color || '#4f46e5'}10`, 
+                                    color: session.services.color || '#4f46e5',
+                                    borderColor: `${session.services.color || '#4f46e5'}30`
+                                  }}
+                                >
+                                  <Layout size={14} />
+                                  {session.services.code || 'ROOM'}
+                                </div>
                               ) : null}
                               {session.customers?.full_name || (session.user_code.startsWith('NA') ? `زائر (${session.user_code})` : 'مستخدم غير مسجل')}
                             </div>

@@ -26,6 +26,7 @@ import { RoomsDatabase } from './pages/RoomsDatabase';
 import { KitchenKiosk } from './pages/KitchenKiosk';
 import { BusinessManagement } from './pages/BusinessManagement';
 import { BusinessKiosk } from './pages/BusinessKiosk';
+import { PremiumDisplay } from './pages/PremiumDisplay';
 
 const DashboardLayout = () => {
   const [branches, setBranches] = useState<Campus[]>([]);
@@ -190,6 +191,7 @@ export const App = () => {
       <Route path="/rooms-kiosk" element={<RoomsKiosk />} />
       <Route path="/kitchen-kiosk" element={<KitchenKiosk />} />
       <Route path="/business-kiosk" element={<BusinessKiosk />} />
+      <Route path="/premium-display" element={<PremiumDisplay />} />
       <Route path="/login" element={<LoginPage />} />
       
       <Route 
