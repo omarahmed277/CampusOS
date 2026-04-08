@@ -21,7 +21,6 @@ import { ExpensesPanel } from './pages/ExpensesPanel';
 import { InventoryPanel } from './pages/InventoryPanel';
 import { ActivitiesPage } from './pages/ActivitiesPage';
 import { RoomsStatus } from './pages/RoomsStatus';
-import { RoomsKiosk } from './pages/RoomsKiosk';
 import { RoomsDatabase } from './pages/RoomsDatabase';
 import { KitchenKiosk } from './pages/KitchenKiosk';
 import { BusinessManagement } from './pages/BusinessManagement';
@@ -188,10 +187,9 @@ export const App = () => {
     <Routes>
       <Route path="/" element={<WorkspaceLogin />} />
       <Route path="/workspace" element={<WorkspaceLogin />} />
-      <Route path="/rooms-kiosk" element={<RoomsKiosk />} />
+      <Route path="/rooms-kiosk" element={<PremiumDisplay />} />
       <Route path="/kitchen-kiosk" element={<KitchenKiosk />} />
       <Route path="/business-kiosk" element={<BusinessKiosk />} />
-      <Route path="/premium-display" element={<PremiumDisplay />} />
       <Route path="/login" element={<LoginPage />} />
       
       <Route 
