@@ -54,7 +54,7 @@ export const ProfileSection = ({
              <CreditCard className="text-white opacity-20 absolute bottom-4 left-4 group-hover:scale-125 transition-transform" size={40} />
              <p className="text-[9px] md:text-[10px] font-black text-emerald-200 uppercase tracking-widest mb-1 text-right">رصيد الكاش باك</p>
              <h3 className="text-2xl md:text-3xl font-black text-white text-right font-mono">
-                {profileData?.cashback_balance || 0} 
+                {Math.floor(profileData?.cashback_balance || 0)} 
                 <span className="text-xs ml-1 opacity-50">EGP</span>
              </h3>
              <p className="text-[8px] md:text-[9px] font-bold text-emerald-300 text-right mt-1">رصيد متاح للاستخدام</p>
@@ -157,7 +157,7 @@ export const ProfileSection = ({
         )}
 
        {/* Points Conversion Card */}
-       {profileData?.loyalty_points >= 100 && (
+       {profileData?.loyalty_points >= 10 && (
          <div className="bg-white/5 border border-white/10 rounded-[2.5rem] p-6 flex items-center justify-between gap-4 backdrop-blur-xl group hover:border-indigo-500/50 transition-all">
             <div className="text-right">
                <h4 className="font-black text-white text-sm">حول نقاطك إلى نقود</h4>

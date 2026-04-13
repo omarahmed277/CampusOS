@@ -9,7 +9,7 @@ import { LoginPage } from './pages/LoginPage';
 import { Dashboard } from './pages/Dashboard';
 import { BookingsManager } from './pages/BookingsManager';
 import { SubscriptionsPanel } from './pages/SubscriptionsPanel';
-import { ContractsPanel } from './pages/ContractsPanel';
+import { PartnersPanel } from './pages/PartnersPanel';
 import { SettingsPanel } from './pages/SettingsPanel';
 import { CheckinPortal } from './pages/CheckinPortal';
 import { WorkspaceAdminSessions } from './pages/WorkspaceAdminSessions';
@@ -62,7 +62,7 @@ const DashboardLayout = () => {
       case 'customers': return 'قاعدة بيانات العملاء';
       case 'bookings': return 'جدول الحجوزات';
       case 'subscriptions': return 'إدارة الاشتراكات';
-      case 'contracts': return 'التعاقدات والشراكات';
+      case 'partners': return 'الشركاء والأنشطة الطلابية';
       case 'business': return 'إدارة تعاقدات الشركات';
       case 'staff': return 'إدارة المهام والأداء';
       case 'finance': return 'التقارير المالية والتحليل';
@@ -127,7 +127,7 @@ const DashboardLayout = () => {
               <Route path="customers" element={<CustomerDatabase branchId={currentCampus?.id} />} />
               <Route path="bookings" element={<BookingsManager branchId={currentCampus?.id} />} />
               <Route path="subscriptions" element={<SubscriptionsPanel branchId={currentCampus?.id} />} />
-              <Route path="contracts" element={<ContractsPanel branchId={currentCampus?.id} />} />
+              <Route path="partners" element={<PartnersPanel branchId={currentCampus?.id} />} />
               <Route path="business" element={<BusinessManagement branchId={currentCampus?.id} />} />
               <Route path="staff" element={<StaffManagement branchId={currentCampus?.id} />} />
               <Route path="finance" element={<FinancePanel branchId={currentCampus?.id} />} />

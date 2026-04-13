@@ -1,5 +1,5 @@
-﻿import React, { useState, useEffect } from 'react';
-import { Clock, CheckCircle2, AlertCircle, RefreshCw, X, Receipt, Users2, Sparkles, Plus, Lock, Briefcase, Layout } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Clock, CheckCircle2, AlertCircle, RefreshCw, X, Receipt, Users2, Sparkles, Plus, Lock, Briefcase, Layout, DollarSign, Phone, Printer } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { supabase } from '../lib/supabase';
 import { calculateSessionPrice } from '../lib/pricing';
@@ -30,8 +30,45 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
   const [inventory, setInventory] = useState<any[]>([]);
   const [pointsPerHour, setPointsPerHour] = useState(10);
   const [studentCashbackPct, setStudentCashbackPct] = useState(15);
+  const [renewalPkgId, setRenewalPkgId] = useState<number | null>(null);
+  const [renewalPrice, setRenewalPrice] = useState(0);
+  const [renewalPaid, setRenewalPaid] = useState(0);
+  const [partnerCode, setPartnerCode] = useState('');
+  const [activePartner, setActivePartner] = useState<any>(null);
+  const [isVerifyingPartner, setIsVerifyingPartner] = useState(false);
+
+  const SUBSCRIPTION_PACKAGES = [
+    { id: 1, name: '40 Hours', hours: 40, price: 320 },
+    { id: 2, name: '80 Hours', hours: 80, price: 600 },
+    { id: 3, name: '100 Hours', hours: 100, price: 700 },
+  ];
 
   // Helper to format UTC ISO to Cairo Local YYYY-MM-DDTHH:mm
+  const handleVerifyPartner = async () => {
+    if (!partnerCode) return;
+    setIsVerifyingPartner(true);
+    try {
+        const { data, error } = await supabase
+            .from('partners')
+            .select('*')
+            .eq('partner_code', partnerCode.trim().toUpperCase())
+            .eq('is_active', true)
+            .maybeSingle();
+        
+        if (error) throw error;
+        if (data) {
+            setActivePartner(data);
+        } else {
+            setActivePartner(null);
+            alert('كود غير صحيح أو نشاط غير مفعل');
+        }
+    } catch (err) {
+        console.error(err);
+    } finally {
+        setIsVerifyingPartner(false);
+    }
+  };
+
   const toCairoInput = (iso?: string | Date) => {
     if (!iso) return '';
     try {
@@ -48,6 +85,12 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
     if (!localStr) return null;
     return new Date(localStr).toISOString();
   };
+
+  useEffect(() => {
+    if (editingBill) {
+      handleUpdateTime('endTime', (toCairoInput as any)(editingBill.endTime));
+    }
+  }, [renewalPkgId]);
 
   useEffect(() => {
     if (!branchId) return;
@@ -117,7 +160,7 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
     try {
       const { data, error } = await (supabase as any)
         .from('workspace_sessions')
-        .select(`*, services(code, name_ar, color), customers(full_name, loyalty_points, cashback_balance, college, company_members(*, companies(*)), subscriptions(*))`)
+        .select(`*, services(code, name_ar, color), partners(*), customers(full_name, loyalty_points, cashback_balance, college, company_members(*, companies(*)), subscriptions(*))`)
         .eq('branch_id', branchId || '')
         .in('status', ['active', 'checkout_requested', 'pause_requested', 'paused', 'resume_requested'])
         .order('start_time', { ascending: false });
@@ -241,20 +284,22 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
     let workspaceAmount = 0;
     let isSubscribed = false;
     let remainingSubHours = 0;
+    let overageHours = 0;
     const businessMember = session.customers?.company_members?.[0]; // Get linked business member
     const businessContract = session.customers?.contracts;
 
     if (activeSub) {
         isSubscribed = true;
         const availableHours = Number(activeSub.total_hours) - Number(activeSub.used_hours);
-        remainingSubHours = availableHours - usedHours;
+        const rawRemaining = availableHours - usedHours;
 
-        if (remainingSubHours < 0) {
-            const overageHours = Math.abs(remainingSubHours);
+        if (rawRemaining < 0) {
+            overageHours = Math.abs(rawRemaining);
             remainingSubHours = 0;
             const overageMins = Math.ceil(overageHours * 60);
             workspaceAmount = calculateSessionPrice(overageMins) || 0;
         } else {
+            remainingSubHours = rawRemaining;
             workspaceAmount = 0; 
         }
     } else if (businessMember) {
@@ -278,8 +323,8 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
     setEditingBill({
       ...session,
       orders,
-      workspaceAmount,
-      cateringAmount,
+      workspaceAmount: workspaceAmount,
+       cateringAmount,
       actualCateringCost,
       totalAmount,
       diffMinutes,
@@ -288,13 +333,16 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
       endTime: endTime.toISOString(),
       isSubscribed,
       subscriptionId: activeSub?.id,
-      remainingSubHours: remainingSubHours - usedHours,
-      initialRemaining: remainingSubHours,
+      remainingSubHours: remainingSubHours,
+      initialRemaining: isSubscribed ? (Number(activeSub.total_hours) - Number(activeSub.used_hours)) : 0,
+      realOverage: overageHours,
       subEndDate: activeSub?.end_date,
-      loyaltyPoints: session.customers?.loyalty_points || 0,
+      customerId: session.customer_id,
       cashbackBalance: session.customers?.cashback_balance || 0,
+      loyaltyPoints: session.customers?.loyalty_points || 0,
       deductedCashback: 0,
-      contract: businessContract
+      contract: businessContract,
+      partners: session.partners
     });
   };
 
@@ -316,12 +364,13 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
     const businessContract = editingBill.contract;
 
     if (editingBill.isSubscribed) {
-       remainingSubHours = Number(editingBill.initialRemaining) - usedHours;
-       if (remainingSubHours < 0) {
-           const overageHours = Math.abs(remainingSubHours);
+       const rawRemaining = Number(editingBill.initialRemaining) - usedHours;
+       if (rawRemaining < 0) {
+           const overageHours = Math.abs(rawRemaining);
            remainingSubHours = 0;
            workspaceAmount = calculateSessionPrice(Math.ceil(overageHours * 60)) || 0;
        } else {
+           remainingSubHours = rawRemaining;
            workspaceAmount = 0;
        }
     } else if (businessContract && businessContract.type === 'Business') {
@@ -335,7 +384,9 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
     const actualCateringCost = (Number(editingBill.actualCateringCost) || 0);
     const cateringAmount = (businessContract && businessContract.type === 'Business') ? 0 : actualCateringCost;
     const deductedCashback = Number(editingBill.deductedCashback) || 0;
-    const totalAmount = Math.max(0, parseFloat((Number(workspaceAmount) + cateringAmount - deductedCashback).toFixed(2)));
+    // If renewal is selected, workspaceAmount (overage) is covered by the new subscription
+    const finalWorkspaceAmount = renewalPkgId ? 0 : workspaceAmount;
+    const totalAmount = Math.max(0, parseFloat((Number(finalWorkspaceAmount) + cateringAmount - deductedCashback).toFixed(2)));
 
     setEditingBill({
        ...editingBill,
@@ -343,11 +394,12 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
        endTime,
        diffMinutes,
        usedHours,
-       workspaceAmount,
+       workspaceAmount: workspaceAmount,
        cateringAmount,
        actualCateringCost,
        totalAmount,
-       remainingSubHours
+       remainingSubHours,
+       realOverage: (Number(editingBill.initialRemaining) - usedHours < 0) ? Math.abs(Number(editingBill.initialRemaining) - usedHours) : 0
     });
   };
 
@@ -389,6 +441,49 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
     const newOrders = [...editingBill.orders, { name: 'صنف جديد', price: 0, quantity: 1, time: new Date().toISOString() }];
     setEditingBill({ ...editingBill, orders: newOrders });
   };
+
+  
+  const handleConvertPoints = async () => {
+    if (!editingBill || !editingBill.customerId) return;
+    try {
+      const { data: cust, error: fetchErr } = await supabase
+        .from('customers')
+        .select('loyalty_points, cashback_balance')
+        .eq('id', editingBill.customerId)
+        .single();
+      
+      if (fetchErr) throw fetchErr;
+      if (!cust || (cust.loyalty_points || 0) <= 0) {
+        alert('لا يوجد نقاط كافية للتحويل');
+        return;
+      }
+
+      // 10 Points = 1 EGP Rate
+      const pointsToConvert = cust.loyalty_points;
+      const cashbackOutput = Number((pointsToConvert * 0.25).toFixed(2));
+      
+      const { error: upErr } = await supabase
+        .from('customers')
+        .update({
+          loyalty_points: 0,
+          cashback_balance: (Number(cust.cashback_balance) || 0) + cashbackOutput
+        })
+        .eq('id', editingBill.customerId);
+
+      if (upErr) throw upErr;
+
+      // Update local state
+      setEditingBill({
+        ...editingBill,
+        cashbackBalance: (Number(editingBill.cashbackBalance) || 0) + cashbackOutput
+      });
+      alert(`تم تحويل ${pointsToConvert} نقطة إلى ${cashbackOutput} ج.م رصيد كاش باك`);
+    } catch (err) {
+      console.error('Points conversion error:', err);
+      alert('خطأ في تحويل النقاط');
+    }
+  };
+
 
   const handleAcceptCheckout = async () => {
     if (!editingBill) return;
@@ -444,9 +539,57 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
               
               if (subUpdateError) console.error('Subscription Update Error:', subUpdateError);
           }
+
+          // RENEWAL LOGIC: Create new subscription and deduct overage
+          if (renewalPkgId) {
+             const pkg = SUBSCRIPTION_PACKAGES.find(p => p.id === renewalPkgId);
+             if (pkg) {
+                const overage = Number(editingBill.realOverage) || 0;
+                const { error: renewalError } = await (supabase as any).from('subscriptions').insert({
+                   branch_id: branchId,
+                   customer_id: editingBill.customerId,
+                   type: `${pkg.hours} Hours Package (Renewal)`,
+                   price: renewalPrice,
+                   paid: renewalPaid,
+                   remaining: Math.max(0, renewalPrice - renewalPaid),
+                   start_date: new Date().toISOString().split('T')[0],
+                   end_date: new Date(new Date().setMonth(new Date().getMonth() + 1)).toISOString().split('T')[0],
+                   total_hours: pkg.hours,
+                   used_hours: overage,
+                   status: overage >= pkg.hours ? 'Exhausted' : 'Active'
+                });
+                if (renewalError) console.error('Renewal Error:', renewalError);
+                else {
+                   setRenewalPkgId(null);
+                }
+             }
+          }
       }
 
-      // 3. Award Loyalty & Cashback & Handle Business Contract Balance
+      // 4. Award Partner Cashback (Student Activity)
+      const partnerToAward = editingBill.partners || activePartner;
+      if (partnerToAward && (editingBill.workspaceAmount > 0)) {
+         const roomAmount = Number(editingBill.workspaceAmount) || 0;
+         const partnerCashback = Number(((roomAmount * (partnerToAward.cashback_rate || 0)) / 100).toFixed(2));
+         
+         if (partnerCashback > 0) {
+            const { error: partErr } = await supabase
+               .from('partners')
+               .update({
+                  total_earned: (Number(partnerToAward.total_earned) || 0) + partnerCashback
+               } as any)
+               .eq('id', partnerToAward.id);
+            
+            if (partErr) console.error('Partner Cashback Error:', partErr);
+            
+            // Link partner to session (if not already linked)
+            if (!editingBill.partner_id) {
+               await supabase.from('workspace_sessions').update({ partner_id: partnerToAward.id }).eq('id', editingBill.id);
+            }
+         }
+      }
+
+      // 5. Award Loyalty & Cashback & Handle Business Contract Balance
       if (editingBill.customerId) {
         const busMember = editingBill.customers?.company_members?.[0];
 
@@ -512,9 +655,9 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
         const pointsToAward = Math.floor(billableMinsForPoints / (60 / pointsPerHour));
         
         // Student Cashback on the PAID amount (Total - Deducted Cashback)
-        const isStudent = !!editingBill.customers?.college;
+        
         const paidAmount = Math.max(0, Number(editingBill.totalAmount) || 0);
-        const cashbackToAward = (isStudent && studentCashbackPct > 0) ? (paidAmount * (studentCashbackPct / 100)) : 0;
+        const cashbackToAward = (studentCashbackPct > 0) ? (paidAmount * (studentCashbackPct / 100)) : 0;
 
         const { data: currentCust } = await supabase
           .from('customers')
@@ -538,7 +681,11 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
         }
       }
 
-      setCheckoutBill({ ...editingBill, remainingAfter: editingBill.remainingSubHours });
+      setCheckoutBill({ 
+        ...editingBill, 
+        remainingAfter: editingBill.remainingSubHours,
+        realOverage: editingBill.realOverage || 0
+      });
       setEditingBill(null);
       fetchSessions();
     } catch (err: any) {
@@ -639,7 +786,8 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
           status: 'active',
           branch_id: branchId,
           start_time: new Date().toISOString(),
-          created_at: new Date().toISOString()
+          created_at: new Date().toISOString(),
+          partner_id: activePartner ? activePartner.id : null
         });
 
       if (error) throw error;
@@ -678,6 +826,28 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
                 className="w-full h-16 md:h-20 px-8 rounded-2xl bg-white border-2 border-slate-100 font-black text-xl md:text-2xl text-center focus:border-indigo-500 focus:ring-8 focus:ring-indigo-100 transition-all outline-none uppercase placeholder:text-slate-200 shadow-inner"
                 onKeyDown={(e) => e.key === 'Enter' && handleStartManualSession()}
               />
+            </div>
+            <div className="relative w-full sm:w-48 flex bg-white border-2 border-slate-100 rounded-2xl focus-within:border-emerald-400 focus-within:ring-4 focus-within:ring-emerald-50 transition-all shadow-inner px-2 overflow-visible h-16 md:h-20 items-center">
+              <Briefcase size={20} className={`ml-2 shrink-0 ${activePartner ? 'text-emerald-500' : 'text-slate-300'}`} />
+              <input 
+                type="text"
+                value={partnerCode}
+                onChange={(e) => {
+                  setPartnerCode(e.target.value);
+                  if (activePartner) setActivePartner(null);
+                }}
+                onBlur={() => partnerCode && handleVerifyPartner()}
+                placeholder="كود النشاط"
+                className="w-full bg-transparent font-black text-base md:text-lg text-center outline-none uppercase placeholder:text-slate-300"
+                onKeyDown={(e) => e.key === 'Enter' && handleVerifyPartner()}
+              />
+              {activePartner ? (
+                <div className="absolute top-[110%] left-0 right-0 bg-emerald-50 text-emerald-700 text-xs font-black p-3 rounded-2xl border border-emerald-100 shadow-xl z-[100] text-center animate-in slide-in-from-top-2 whitespace-nowrap">
+                   {activePartner.name}
+                </div>
+              ) : isVerifyingPartner ? (
+                 <RefreshCw size={16} className="animate-spin text-slate-300 shrink-0 mr-2" />
+              ) : null}
             </div>
             <button 
               onClick={handleStartManualSession}
@@ -796,6 +966,12 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
                             </div>
                             <div className="flex flex-row-reverse items-center gap-2 mt-1">
                                <div className="text-sm font-black text-slate-400 bg-slate-50 px-2 py-0.5 rounded-lg w-fit">{session.user_code}</div>
+                               {session.partners && (
+                                  <div className="flex flex-row-reverse items-center gap-1 px-2 py-0.5 bg-indigo-50 text-indigo-600 rounded-lg text-[10px] font-black" title="نشاط / شريك">
+                                     <Briefcase size={12} />
+                                     <span>{session.partners.name}</span>
+                                  </div>
+                               )}
                                {activeSub && (
                                   <div className="flex flex-row-reverse items-center gap-1 px-2 py-0.5 bg-emerald-50 text-emerald-600 rounded-lg text-[10px] font-black ">
                                      
@@ -1008,6 +1184,15 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
                     </div>
                   )}
 
+                  {session.partners && (
+                    <div className="bg-indigo-50/50 rounded-2xl p-3 border border-indigo-100/50 mb-4 flex justify-between items-center text-indigo-700">
+                       <div className="flex items-center gap-2">
+                          <Briefcase size={14} />
+                          <span className="text-[10px] font-black">{session.partners.name}</span>
+                       </div>
+                    </div>
+                  )}
+
                     <div className="flex flex-wrap gap-2 pt-2">
                        {/* Control Buttons Grid */}
                        <div className="grid grid-cols-2 gap-2 w-full">
@@ -1086,7 +1271,79 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
             <div className="space-y-6 flex-1">
               {/* Subscription Info Badge */}
               {editingBill.isSubscribed && (
-                <div className="bg-indigo-900 text-white p-6 rounded-3xl relative overflow-hidden group shadow-xl">
+                 <div className="bg-indigo-900 text-white p-6 rounded-3xl relative overflow-hidden group shadow-xl">
+                    {/* Renewal Option if Exhausted or Overage */}
+                    {editingBill.remainingSubHours <= 5 && (
+                       <div className="mt-4 pt-4 border-t border-white/10 relative z-20">
+                          <label className="flex items-center justify-end gap-3 cursor-pointer group/renew">
+                             <div className="text-right">
+                                <p className="text-[10px] font-black text-indigo-100 uppercase tracking-widest">تجديد الاشتراك الآن؟</p>
+                                <p className="text-[8px] text-white/60">سيتم خصم الساعات الزائدة من الاشتراك الجديد</p>
+                             </div>
+                             <input 
+                               type="checkbox" 
+                               checked={!!renewalPkgId} 
+                               onChange={(e) => {
+                                 if (e.target.checked) {
+                                    setRenewalPkgId(SUBSCRIPTION_PACKAGES[0].id);
+                                    setRenewalPrice(SUBSCRIPTION_PACKAGES[0].price);
+                                    setRenewalPaid(SUBSCRIPTION_PACKAGES[0].price);
+                                 } else {
+                                    setRenewalPkgId(null);
+                                 }
+                               }}
+                               className="w-5 h-5 rounded-lg border-white/20 bg-white/10 text-emerald-500 focus:ring-offset-indigo-600"
+                             />
+                          </label>
+
+                          {renewalPkgId && (
+                             <div className="mt-4 space-y-4">
+                                <div className="grid grid-cols-3 gap-2">
+                                   {SUBSCRIPTION_PACKAGES.map(pkg => (
+                                      <button 
+                                        key={pkg.id}
+                                        onClick={() => {
+                                           setRenewalPkgId(pkg.id);
+                                           setRenewalPrice(pkg.price);
+                                           setRenewalPaid(pkg.price);
+                                        }}
+                                        className={`px-3 py-2 rounded-xl text-[9px] font-black transition-all border ${renewalPkgId === pkg.id ? 'bg-white text-indigo-600 border-white shadow-lg' : 'bg-white/10 text-white border-white/20 hover:bg-white/20'}`}
+                                      >
+                                         {pkg.name}
+                                      </button>
+                                   ))}
+                                </div>
+                                
+                                <div className="grid grid-cols-3 gap-4 bg-white/5 p-4 rounded-2xl border border-white/10">
+                                   <div className="text-right">
+                                      <p className="text-[8px] font-black text-indigo-200 uppercase mb-1">السعـر</p>
+                                      <input 
+                                        type="number"
+                                        value={renewalPrice}
+                                        onChange={(e) => setRenewalPrice(Number(e.target.value))}
+                                        className="w-full bg-white/10 border border-white/10 rounded-lg px-2 py-1 text-xs font-black text-white outline-none"
+                                      />
+                                   </div>
+                                   <div className="text-right">
+                                      <p className="text-[8px] font-black text-indigo-200 uppercase mb-1">المدفوع</p>
+                                      <input 
+                                        type="number"
+                                        value={renewalPaid}
+                                        onChange={(e) => setRenewalPaid(Number(e.target.value))}
+                                        className="w-full bg-white/10 border border-white/10 rounded-lg px-2 py-1 text-xs font-black text-emerald-400 outline-none"
+                                      />
+                                   </div>
+                                   <div className="text-right">
+                                      <p className="text-[8px] font-black text-indigo-200 uppercase mb-1">المتبقي</p>
+                                      <div className="w-full bg-white/5 border border-white/5 rounded-lg px-2 py-1 text-xs font-black text-rose-300">
+                                         {Math.max(0, renewalPrice - renewalPaid)}
+                                      </div>
+                                   </div>
+                                </div>
+                             </div>
+                          )}
+                       </div>
+                    )}
                    <div className="absolute top-0 right-0 w-full h-full bg-gradient-to-br from-indigo-500/20 to-transparent -z-10" />
                    <div className="flex justify-between items-center relative z-10 text-right">
                       <div>
@@ -1159,6 +1416,23 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
                 </div>
                 <div className="text-right">
                     <p className="text-slate-400 text-[9px] font-black uppercase mb-1 tracking-widest">وقت الجلسة</p>
+                    <div className="flex items-center justify-end gap-1.5 font-black text-indigo-600">
+                       <span className="text-base md:text-lg">{Math.floor(editingBill.diffMinutes / 60)}h {editingBill.diffMinutes % 60}m</span>
+                       <Clock size={14} />
+                    </div>
+                </div>
+                {editingBill.partners && (
+                   <div className="text-right">
+                       <p className="text-slate-400 text-[9px] font-black uppercase mb-1 tracking-widest">نشاط / شريك</p>
+                       <div className="flex items-center justify-end gap-1.5 font-black text-emerald-600">
+                          <span className="text-base md:text-lg">{editingBill.partners.name}</span>
+                          <Briefcase size={14} />
+                       </div>
+                   </div>
+                )}
+                <div className="text-right">
+                    <p className="text-slate-400 text-[9px] font-black uppercase mb-1 tracking-widest">وقت الجلسة</p>
+
                     <div className="flex items-center justify-end gap-1.5 font-black text-indigo-600">
                        <span className="text-base md:text-lg">{Math.floor(editingBill.diffMinutes / 60)}h {editingBill.diffMinutes % 60}m</span>
                        <Clock size={14} />
@@ -1276,7 +1550,20 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
                          نظام الولاء والمكافآت
                          <Sparkles size={14} className="text-emerald-500" />
                        </h4>
-                       <p className="text-[10px] text-emerald-600 mt-1">سيحصل العميل على {Math.floor(editingBill.diffMinutes / (60 / pointsPerHour))} نقطة</p>
+                       <div className="flex flex-col gap-1 items-end mt-1">
+                          <p className="text-[10px] text-emerald-600">سيربح العميل: {Math.floor(editingBill.diffMinutes / (60 / pointsPerHour))} نقطة</p>
+                          <div className="flex gap-2 items-center mt-2">
+                             <span className="text-[9px] font-black text-indigo-400 bg-indigo-50 px-2 py-0.5 rounded cursor-help" title="كل 4 نقاط = 1 ج.م (تقريباً 10 ساعات = 1 ساعة هدية)">
+                                رصيد النقاط: {editingBill.customers?.loyalty_points || 0}
+                             </span>
+                             <button 
+                               onClick={handleConvertPoints}
+                               className="text-[9px] font-black text-white bg-indigo-500 px-2 py-0.5 rounded hover:bg-indigo-600 transition-all shadow-sm"
+                             >
+                                تحويل النقاط لمبلغ
+                             </button>
+                          </div>
+                        </div>
                     </div>
                     <div className="text-left">
                        <p className="text-[10px] font-bold text-slate-400">الرصيد الحالي: {editingBill.cashbackBalance} ج.م</p>
@@ -1475,19 +1762,52 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <button
-                  onClick={() => setCheckoutBill(null)}
-                  className="py-5 bg-slate-900 text-white font-black rounded-3xl shadow-xl hover:bg-black hover:-translate-y-1 active:scale-95 transition-all text-sm"
-                >
-                  تحصيل المبلـغ
-                </button>
-                <button
-                  onClick={handlePrintReceipt}
-                  className="py-5 bg-slate-100 text-slate-600 font-black rounded-3xl hover:bg-slate-200 transition-all text-sm"
-                >
-                  طباعة التذكرة
-                </button>
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <button
+                    onClick={() => setCheckoutBill(null)}
+                    className="group relative flex flex-col items-center justify-center py-6 bg-slate-900 text-white font-black rounded-[2.5rem] shadow-xl hover:bg-black hover:-translate-y-1 active:scale-95 transition-all text-sm overflow-hidden"
+                  >
+                    <div className="absolute inset-0 bg-gradient-to-tr from-white/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                    <DollarSign size={24} className="mb-2 text-emerald-400" />
+                    تحصيل كاش
+                  </button>
+                  <button
+                    onClick={() => {
+                        const amount = checkoutBill.totalAmount;
+                        const ussdCode = `*9*7*01007480906*${amount}#`;
+                        if (confirm(`تحويل فودافون كاش (${amount} ج.م)؟\nسيتم فتح لوحة الاتصال بالكود المباشر.`)) {
+                           window.location.href = `tel:${ussdCode.replace('#', '%23')}`;
+                        }
+                    }}
+                    className="group relative flex flex-col items-center justify-center py-6 bg-rose-600 text-white font-black rounded-[2.5rem] shadow-xl hover:bg-rose-700 hover:-translate-y-1 active:scale-95 transition-all text-sm overflow-hidden"
+                  >
+                    <div className="absolute inset-0 bg-gradient-to-tr from-white/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                    <Phone size={24} className="mb-2 text-rose-200" />
+                    فودافون كاش
+                  </button>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    onClick={() => {
+                        navigator.clipboard.writeText('01007480906');
+                        alert('تم نسخ الرقم: 01007480906\nيمكنك الآن لصقه في InstaPay');
+                        window.location.href = 'https://www.instapay.com.eg';
+                    }}
+                    className="flex items-center justify-center gap-2 py-4 bg-indigo-50 text-indigo-600 font-bold rounded-2xl hover:bg-indigo-100 transition-all text-xs"
+                  >
+                    <Sparkles size={14} />
+                    تحويل InstaPay
+                  </button>
+                  <button
+                    onClick={handlePrintReceipt}
+                    className="flex items-center justify-center gap-2 py-4 bg-slate-100 text-slate-600 font-bold rounded-2xl hover:bg-slate-200 transition-all text-xs"
+                  >
+                    <Printer size={14} />
+                    طباعة التذكرة
+                  </button>
+                </div>
               </div>
             </div>
         )}

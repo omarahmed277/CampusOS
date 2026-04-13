@@ -1,6 +1,6 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import { Clock, Users, ArrowRight, X, Loader2, CheckCircle2, AlertCircle, Calendar, Plus, Edit, Receipt, Printer } from 'lucide-react';
+import { Clock, Users, ArrowRight, X, Loader2, CheckCircle2, AlertCircle, Calendar, Plus, Edit, Receipt, Printer, Briefcase, DollarSign, Phone, Smartphone } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { RoomsDatabase } from './RoomsDatabase';
 
@@ -42,6 +42,7 @@ export const RoomsStatus = ({ branchId }: { branchId?: string }) => {
   // Manual Override States
   const [overrideDuration, setOverrideDuration] = useState('');
   const [overrideRoomAmount, setOverrideRoomAmount] = useState('');
+  const [partnerCode, setPartnerCode] = useState('');
 
   const handlePrintA4Receipt = () => {
        const customerName = prompt("أدخل اسم العميل (الذي سيظهر في الفاتورة):", showReceipt.userName);
@@ -191,6 +192,12 @@ export const RoomsStatus = ({ branchId }: { branchId?: string }) => {
       let finalUserCode = userCode || servingRoom.code || `GUEST-${Date.now().toString().slice(-4)}`;
       let finalUserName = userName || `${servingRoom.code} - ${servingRoom.name_ar}`;
       let finalPhone = 'N/A';
+      let partnerId = null;
+
+      if (partnerCode) {
+        const { data: pData } = await supabase.from('partners').select('id').ilike('partner_code', partnerCode.trim()).eq('status', 'Active').maybeSingle();
+        if (pData) partnerId = pData.id;
+      }
       
       if (userCode) {
         const { data: customer } = await supabase.from('customers').select('id, code, phone, full_name').eq('code', userCode.toUpperCase()).maybeSingle();
@@ -212,6 +219,7 @@ export const RoomsStatus = ({ branchId }: { branchId?: string }) => {
         user_code: finalUserCode.toUpperCase(),
         user_name: finalUserName,
         phone_number: finalPhone,
+        partner_id: partnerId,
         start_time: startTime.toISOString(),
         end_time: endTime.toISOString(),
         status: 'active',
@@ -222,6 +230,7 @@ export const RoomsStatus = ({ branchId }: { branchId?: string }) => {
       setServingRoom(null);
       setUserCode('');
       setUserName('');
+      setPartnerCode('');
       setDurationHours('1');
       fetchRoomsStatus();
     } catch (err: any) {
@@ -281,6 +290,31 @@ export const RoomsStatus = ({ branchId }: { branchId?: string }) => {
           .eq('id', session.id);
 
       if (sessionError) throw sessionError;
+
+      // --- Financial Rewards (Loyalty & Partner Cashback) ---
+      // 1. Award Loyalty Points to Customer
+      if (session.customer_id) {
+          const pointsAwarded = Math.floor(totalAmount);
+          const { data: currentCust } = await supabase.from('customers').select('loyalty_points').eq('id', session.customer_id).single();
+          if (currentCust) {
+              await supabase.from('customers').update({ 
+                  loyalty_points: (currentCust.loyalty_points || 0) + pointsAwarded 
+              }).eq('id', session.customer_id);
+          }
+      }
+
+      // 2. Award Cashback to Partner
+      if (session.partner_id) {
+          const { data: partnerData } = await supabase.from('partners').select('*').eq('id', session.partner_id).single();
+          if (partnerData) {
+              const cashback = Number(((workspaceAmount * (partnerData.cashback_rate || 0)) / 100).toFixed(2));
+              if (cashback > 0) {
+                  await supabase.from('partners').update({
+                      total_earned: (Number(partnerData.total_earned) || 0) + cashback
+                  } as any).eq('id', session.partner_id);
+              }
+          }
+      }
 
       // Deduct from inventory
       for (const order of tempOrders) {
@@ -708,13 +742,13 @@ export const RoomsStatus = ({ branchId }: { branchId?: string }) => {
             </div>
 
             <div className="p-12 space-y-6">
-               <div className="grid grid-cols-2 gap-4">
+               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="space-y-2">
                      <label className="text-[10px] font-black text-slate-400 uppercase mr-3 tracking-widest">كود العميل</label>
                      <input 
                        type="text" 
                        placeholder="#CUS-123" 
-                       className="w-full bg-slate-50 border-2 border-slate-100 rounded-[1.5rem] px-6 py-4 font-black outline-none focus:border-indigo-500 transition-all uppercase" 
+                       className="w-full h-14 bg-slate-50 border-2 border-slate-100 rounded-[1.5rem] px-6 py-4 font-black outline-none focus:border-indigo-500 transition-all uppercase" 
                        value={userCode} 
                        onChange={e => setUserCode(e.target.value)} 
                      />
@@ -724,10 +758,23 @@ export const RoomsStatus = ({ branchId }: { branchId?: string }) => {
                      <input 
                        type="text" 
                        placeholder="الاسم الكامل" 
-                       className="w-full bg-slate-50 border-2 border-slate-100 rounded-[1.5rem] px-6 py-4 font-black outline-none focus:border-indigo-500 transition-all" 
+                       className="w-full h-14 bg-slate-50 border-2 border-slate-100 rounded-[1.5rem] px-6 py-4 font-black outline-none focus:border-indigo-500 transition-all" 
                        value={userName} 
                        onChange={e => setUserName(e.target.value)} 
                      />
+                  </div>
+                  <div className="space-y-2">
+                     <label className="text-[10px] font-black text-emerald-500 uppercase mr-3 tracking-widest">كود النشاط (شريك)</label>
+                     <div className="relative group">
+                         <input 
+                           type="text" 
+                           placeholder="GDSC" 
+                           className="w-full h-14 bg-emerald-50/30 border-2 border-emerald-100/50 rounded-[1.5rem] px-6 py-4 font-black outline-none focus:border-emerald-500 transition-all uppercase" 
+                           value={partnerCode} 
+                           onChange={e => setPartnerCode(e.target.value)} 
+                         />
+                         <Briefcase className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-400" />
+                     </div>
                   </div>
                </div>
 
@@ -955,9 +1002,9 @@ export const RoomsStatus = ({ branchId }: { branchId?: string }) => {
                     </div>
                  </div>
 
-                 <div className="flex gap-4 print:hidden">
+                 <div className="space-y-4 print:hidden pt-4">
                     <button 
-                      onClick={handlePrintA4Receipt} 
+                      onClick={handlePrintA4Receipt} /* PAYMENT */ 
                       className="flex-1 bg-white border-2 border-slate-900 text-slate-900 py-4 rounded-2xl font-black text-xs hover:bg-slate-50 transition-all active:scale-95"
                     >
                        طباعة فاتورة (A4)

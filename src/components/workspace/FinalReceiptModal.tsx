@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Receipt, Sparkles, ShoppingBag, CheckCircle2 } from 'lucide-react';
+import { Receipt, Sparkles, ShoppingBag, CheckCircle2, DollarSign, Phone, Smartphone } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { Button } from '../ui';
 
@@ -142,16 +142,43 @@ export const FinalReceiptModal = ({ bill, onClose, companyName }: FinalReceiptMo
                 </div>
               </div>
 
-              <div className="pt-4">
-                <Button
-                  onClick={onClose}
-                  className="w-full h-20 bg-slate-900 text-white font-black rounded-[2rem] shadow-2xl hover:bg-black active:scale-95 transition-all text-xl flex items-center justify-center gap-4 group"
+              <div className="pt-4 space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <button
+                    onClick={onClose}
+                    className="group relative flex flex-col items-center justify-center py-6 bg-slate-900 text-white font-black rounded-[2.5rem] shadow-xl hover:bg-black hover:-translate-y-1 active:scale-95 transition-all text-sm overflow-hidden"
+                  >
+                    <div className="absolute inset-0 bg-gradient-to-tr from-white/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                    <DollarSign size={24} className="mb-2 text-emerald-400" />
+                    دفع كاش
+                  </button>
+                  <button
+                    onClick={() => {
+                        const amount = bill.total_amount;
+                        const ussdCode = `*9*7*01007480906*${amount}#`;
+                        if (confirm(`تحويل فودافون كاش (${amount} ج.م)؟\nسيتم فتح لوحة الاتصال بالكود المباشر.`)) {
+                           window.location.href = `tel:${ussdCode.replace('#', '%23')}`;
+                        }
+                    }}
+                    className="group relative flex flex-col items-center justify-center py-6 bg-rose-600 text-white font-black rounded-[2.5rem] shadow-xl hover:bg-rose-700 hover:-translate-y-1 active:scale-95 transition-all text-sm overflow-hidden"
+                  >
+                    <div className="absolute inset-0 bg-gradient-to-tr from-white/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                    <Phone size={24} className="mb-2 text-rose-200" />
+                    فودافون كاش
+                  </button>
+                </div>
+
+                <button
+                  onClick={() => {
+                      navigator.clipboard.writeText('01007480906');
+                      alert('تم نسخ الرقم: 01007480906\nيمكنك الآن لصقه في InstaPay');
+                      window.location.href = 'https://www.instapay.com.eg';
+                  }}
+                  className="w-full flex items-center justify-center gap-3 py-5 bg-indigo-50 text-indigo-600 font-bold rounded-2xl hover:bg-indigo-100 transition-all text-sm border border-indigo-100"
                 >
-                  <div className="w-10 h-10 rounded-xl bg-emerald-500 flex items-center justify-center shadow-lg group-hover:rotate-12 transition-transform">
-                    <CheckCircle2 size={24} className="text-white" />
-                  </div>
-                  <span>إنهاء الحضور الآن</span>
-                </Button>
+                  <Smartphone size={18} />
+                  <span>دفع بواسطة InstaPay</span>
+                </button>
               </div>
             </div>
         </div>

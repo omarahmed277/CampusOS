@@ -47,7 +47,7 @@ export const WorkspaceLogin = () => {
   
   // Dynamic Loyalty Settings
   const [ptsPerHour, setPtsPerHour] = useState(10);
-  const [cbRatio, setCbRatio] = useState(6);
+  const [cbRatio, setCbRatio] = useState(4);
 
   const [college, setCollege] = useState('');
   const [customCollege, setCustomCollege] = useState('');
@@ -1029,7 +1029,7 @@ export const WorkspaceLogin = () => {
             .from('customers')
             .update({
                 loyalty_points: 0,
-                cashback_balance: ((profileData.cashback_balance || 0) + rewardAmount)
+                cashback_balance: Number(((profileData.cashback_balance || 0) + rewardAmount).toFixed(2))
             } as any)
             .eq('id', profileData.id);
 

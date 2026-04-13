@@ -27,7 +27,7 @@ export const Sidebar = ({ isOpen, onClose, isCollapsed = false, onToggleCollapse
     { id: 'daily_log', label: 'سجل الحضور', path: '/admin/daily_log', icon: ClipboardCheck },
     { id: 'customers', label: 'قاعدة العملاء', path: '/admin/customers', icon: Users2 },
     { id: 'subscriptions', label: 'الاشتراكات', path: '/admin/subscriptions', icon: Award },
-    { id: 'contracts', label: 'التعاقدات', path: '/admin/contracts', icon: Layers },
+    { id: 'partners', label: 'الشركاء والأنشطة', path: '/admin/partners', icon: Award },
     { id: 'business', label: 'الشركات', path: '/admin/business', icon: Building2 },
     { id: 'bookings', label: 'الحجوزات', path: '/admin/bookings', icon: Calendar },
     { id: 'rooms_manager', label: 'الغرف والحجوزات', path: '/admin/rooms-status', icon: Clock },

@@ -1,5 +1,5 @@
-﻿import React, { useState, useEffect } from 'react';
-import { CalendarDays, ShoppingBag, Clock, CheckCircle2, User, RefreshCw, X, Receipt, TrendingUp, TrendingDown, Trash2, Tag, Sparkles, ChevronLeft, ChevronRight, ArrowUpRight, ArrowDownRight, Edit3, Save, AlertCircle, Printer } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { CalendarDays, ShoppingBag, Clock, CheckCircle2, User, RefreshCw, X, Receipt, TrendingUp, TrendingDown, Trash2, Tag, Sparkles, ChevronLeft, ChevronRight, ArrowUpRight, ArrowDownRight, Edit3, Save, AlertCircle, Printer, Briefcase } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { supabase } from '../lib/supabase';
 import { Card, CardHeader, CardTitle, CardContent, Modal } from '../components/ui';
@@ -29,6 +29,7 @@ interface Session {
     color?: string;
   };
   user_name?: string;
+  partners?: { name: string; };
 }
 
 // Helper Component for Desktop Table Row
@@ -70,6 +71,12 @@ const SessionRow = ({ session, onEdit, onDelete, onPrint }: {
                      <div className="flex flex-row-reverse items-center gap-2 px-3 py-1 bg-emerald-50 text-emerald-600 rounded-xl">
                         <Sparkles size={10} className="animate-pulse" />
                         <span className="text-[9px] font-black uppercase tracking-tighter">Subscribed</span>
+                     </div>
+                  )}
+                  {session.partners && (
+                     <div className="flex flex-row-reverse items-center gap-2 px-3 py-1 bg-amber-500 text-white rounded-xl shadow-lg shadow-amber-500/20 group/partner hover:bg-amber-600 transition-all scale-105">
+                        <Briefcase size={12} className="shrink-0" />
+                        <span className="text-[10px] font-black uppercase tracking-tighter">{session.partners.name}</span>
                      </div>
                   )}
                </div>
@@ -315,7 +322,7 @@ export const DailyLog = ({ branchId }: { branchId?: string }) => {
       // 1. Fetch Sessions with Subscriptions and Services
       const { data: sessionsData, error: errSessions } = await (supabase as any)
         .from('workspace_sessions')
-        .select(`*, services(name_ar, code, color), customers(full_name, code, subscriptions(*))`)
+        .select(`*, services(name_ar, code, color), customers(full_name, code, subscriptions(*)), partners(name)`)
         .eq('branch_id', branchId)
         .gte('created_at', startISO)
         .lte('created_at', endISO)
