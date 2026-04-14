@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { CalendarDays, ShoppingBag, Clock, CheckCircle2, User, RefreshCw, X, Receipt, TrendingUp, TrendingDown, Trash2, Tag, Sparkles, ChevronLeft, ChevronRight, ArrowUpRight, ArrowDownRight, Edit3, Save, AlertCircle, Printer, Briefcase } from 'lucide-react';
+import { CalendarDays, ShoppingBag, Clock, CheckCircle2, User, RefreshCw, X, Receipt, TrendingUp, TrendingDown, Trash2, Tag, Sparkles, ChevronLeft, ChevronRight, ArrowUpRight, ArrowDownRight, Edit3, Save, AlertCircle, Printer, Briefcase, DollarSign, Phone, Smartphone } from 'lucide-react';
+
 import { createPortal } from 'react-dom';
 import { supabase } from '../lib/supabase';
 import { Card, CardHeader, CardTitle, CardContent, Modal } from '../components/ui';
@@ -169,7 +170,9 @@ const SessionRow = ({ session, onEdit, onDelete, onPrint }: {
 };
 
 export const DailyLog = ({ branchId }: { branchId?: string }) => {
+  const [activeTab, setActiveTab] = useState<'sessions' | 'payments'>('sessions');
   const [sessions, setSessions] = useState<Session[]>([]);
+
   const [subscriptions, setSubscriptions] = useState<any[]>([]);
   const [expenses, setExpenses] = useState<any[]>([]);
   const [inventory, setInventory] = useState<any[]>([]);

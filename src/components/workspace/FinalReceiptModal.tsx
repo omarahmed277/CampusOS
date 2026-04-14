@@ -170,9 +170,28 @@ export const FinalReceiptModal = ({ bill, onClose, companyName }: FinalReceiptMo
 
                 <button
                   onClick={() => {
-                      navigator.clipboard.writeText('01007480906');
-                      alert('تم نسخ الرقم: 01007480906\nيمكنك الآن لصقه في InstaPay');
-                      window.location.href = 'https://www.instapay.com.eg';
+                      const phoneNumber = '01007480906';
+                      navigator.clipboard.writeText(phoneNumber);
+                      
+                      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+                      const isAndroid = /Android/.test(navigator.userAgent);
+                      
+                      if (isIOS || isAndroid) {
+                        alert(`تم نسخ الرقم: ${phoneNumber}\nسيتم محاولة فتح تطبيق InstaPay الآن.`);
+                        
+                        if (isIOS) {
+                          window.location.href = "instapay://";
+                          setTimeout(() => {
+                            window.location.href = "https://apps.apple.com/eg/app/instapay-egypt/id1588619623";
+                          }, 2500);
+                        } else {
+                          // For Android, try the intent scheme which is more reliable for app opening
+                          window.location.href = "intent://#Intent;scheme=instapay;package=com.egyptianbanks.instapay;end";
+                        }
+                      } else {
+                        alert(`تم نسخ الرقم: ${phoneNumber}\nيرجى استخدامه في تطبيق InstaPay.`);
+                        window.location.href = 'https://www.instapay.eg';
+                      }
                   }}
                   className="w-full flex items-center justify-center gap-3 py-5 bg-indigo-50 text-indigo-600 font-bold rounded-2xl hover:bg-indigo-100 transition-all text-sm border border-indigo-100"
                 >

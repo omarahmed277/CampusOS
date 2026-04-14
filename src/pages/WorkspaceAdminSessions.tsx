@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Clock, CheckCircle2, AlertCircle, RefreshCw, X, Receipt, Users2, Sparkles, Plus, Lock, Briefcase, Layout, DollarSign, Phone, Printer } from 'lucide-react';
+import { Clock, CheckCircle2, AlertCircle, RefreshCw, X, Receipt, Users2, Sparkles, Plus, Lock, Briefcase, Layout, DollarSign, Phone, Printer, Smartphone } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { supabase } from '../lib/supabase';
 import { calculateSessionPrice } from '../lib/pricing';
@@ -484,6 +484,23 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
     }
   };
 
+
+  const updatePaymentMethod = async (sessionId: string, method: string) => {
+    try {
+      const { error } = await supabase
+        .from('workspace_sessions')
+        .update({ payment_method: method })
+        .eq('id', sessionId);
+      if (error) throw error;
+      
+      // Update local state so UI reflects it (optional if modal closes immediately)
+      if (checkoutBill && checkoutBill.id === sessionId) {
+        setCheckoutBill({ ...checkoutBill, payment_method: method });
+      }
+    } catch (err) {
+      console.error('Error updating payment method:', err);
+    }
+  };
 
   const handleAcceptCheckout = async () => {
     if (!editingBill) return;
@@ -1765,7 +1782,10 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <button
-                    onClick={() => setCheckoutBill(null)}
+                    onClick={() => {
+                      updatePaymentMethod(checkoutBill.id, 'cash');
+                      setCheckoutBill(null);
+                    }}
                     className="group relative flex flex-col items-center justify-center py-6 bg-slate-900 text-white font-black rounded-[2.5rem] shadow-xl hover:bg-black hover:-translate-y-1 active:scale-95 transition-all text-sm overflow-hidden"
                   >
                     <div className="absolute inset-0 bg-gradient-to-tr from-white/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
@@ -1777,6 +1797,7 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
                         const amount = checkoutBill.totalAmount;
                         const ussdCode = `*9*7*01007480906*${amount}#`;
                         if (confirm(`تحويل فودافون كاش (${amount} ج.م)؟\nسيتم فتح لوحة الاتصال بالكود المباشر.`)) {
+                           updatePaymentMethod(checkoutBill.id, 'vfcash');
                            window.location.href = `tel:${ussdCode.replace('#', '%23')}`;
                         }
                     }}
@@ -1791,13 +1812,29 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
                 <div className="grid grid-cols-2 gap-3">
                   <button
                     onClick={() => {
-                        navigator.clipboard.writeText('01007480906');
-                        alert('تم نسخ الرقم: 01007480906\nيمكنك الآن لصقه في InstaPay');
-                        window.location.href = 'https://www.instapay.com.eg';
+                        const phoneNumber = '01007480906';
+                        navigator.clipboard.writeText(phoneNumber);
+                        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+                        const isAndroid = /Android/.test(navigator.userAgent);
+                        
+                        updatePaymentMethod(checkoutBill.id, 'instapay');
+
+                        if (isIOS || isAndroid) {
+                          alert(`تم نسخ الرقم: ${phoneNumber}\nسيتم فتح تطبيق InstaPay.`);
+                          if (isIOS) {
+                            window.location.href = "instapay://";
+                            setTimeout(() => { window.location.href = "https://apps.apple.com/eg/app/instapay-egypt/id1588619623"; }, 2500);
+                          } else {
+                            window.location.href = "intent://#Intent;scheme=instapay;package=com.egyptianbanks.instapay;end";
+                          }
+                        } else {
+                          alert(`تم نسخ الرقم: ${phoneNumber}\nيرجى استخدامه في تطبيق InstaPay.`);
+                          window.location.href = 'https://www.instapay.eg';
+                        }
                     }}
                     className="flex items-center justify-center gap-2 py-4 bg-indigo-50 text-indigo-600 font-bold rounded-2xl hover:bg-indigo-100 transition-all text-xs"
                   >
-                    <Sparkles size={14} />
+                    <Smartphone size={14} />
                     تحويل InstaPay
                   </button>
                   <button

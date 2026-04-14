@@ -25,7 +25,8 @@ export const RoomsStatus = ({ branchId }: { branchId?: string }) => {
   // State for session opening
   const [userCode, setUserCode] = useState('');
   const [userName, setUserName] = useState('');
-  const [durationHours, setDurationHours] = useState('1');
+  const [startTimeInput, setStartTimeInput] = useState('');
+  const [endTimeInput, setEndTimeInput] = useState('');
   const [processing, setProcessing] = useState(false);
   const [bookings, setBookings] = useState<any[]>([]);
 
@@ -120,15 +121,28 @@ export const RoomsStatus = ({ branchId }: { branchId?: string }) => {
   // Effect to pre-fill modal when servingRoom changes
   useEffect(() => {
     if (servingRoom) {
+      const now = new Date();
+      const formatToDateTimeLocal = (date: Date) => {
+        const offset = date.getTimezoneOffset() * 60000;
+        return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+      }
+      
       const next = checkFutureBooking(servingRoom.id);
       if (next) {
         setUserName(next.user_name || next.customers?.full_name || '');
         setUserCode(next.user_code || '');
-        setDurationHours(next.duration?.toString() || '1');
+        
+        const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), Math.floor(next.start_time/60), next.start_time%60);
+        const end = new Date(start.getTime() + (next.duration || 1) * 60 * 60 * 1000);
+        setStartTimeInput(formatToDateTimeLocal(start));
+        setEndTimeInput(formatToDateTimeLocal(end));
       } else {
         setUserName('');
         setUserCode('');
-        setDurationHours('1');
+        
+        setStartTimeInput(formatToDateTimeLocal(now));
+        const nextHour = new Date(now.getTime() + 60 * 60 * 1000);
+        setEndTimeInput(formatToDateTimeLocal(nextHour));
       }
     }
   }, [servingRoom]);
@@ -209,8 +223,8 @@ export const RoomsStatus = ({ branchId }: { branchId?: string }) => {
         }
       }
 
-      const startTime = new Date();
-      const endTime = new Date(startTime.getTime() + (parseFloat(durationHours) || 1) * 60 * 60 * 1000);
+      const startTime = new Date(startTimeInput || new Date().toISOString());
+      const endTime = new Date(endTimeInput || new Date(startTime.getTime() + 60 * 60 * 1000).toISOString());
 
       const { error } = await supabase.from('workspace_sessions').insert({
         branch_id: branchId,
@@ -231,7 +245,8 @@ export const RoomsStatus = ({ branchId }: { branchId?: string }) => {
       setUserCode('');
       setUserName('');
       setPartnerCode('');
-      setDurationHours('1');
+      setStartTimeInput('');
+      setEndTimeInput('');
       fetchRoomsStatus();
     } catch (err: any) {
       alert('Error: ' + err.message);
@@ -262,6 +277,21 @@ export const RoomsStatus = ({ branchId }: { branchId?: string }) => {
       room,
       session
     });
+  };
+
+  const updatePaymentMethod = async (sessionId: string, method: string) => {
+    try {
+      const { error } = await supabase
+        .from('workspace_sessions')
+        .update({ payment_method: method })
+        .eq('id', sessionId);
+      if (error) throw error;
+      if (showReceipt && showReceipt.sessionId === sessionId) {
+        setShowReceipt({ ...showReceipt, payment_method: method });
+      }
+    } catch (err) {
+      console.error('Error updating payment method:', err);
+    }
   };
 
   const finalizeEndServing = async () => {
@@ -328,6 +358,7 @@ export const RoomsStatus = ({ branchId }: { branchId?: string }) => {
 
       // Show Receipt
       setShowReceipt({
+        sessionId: session.id,
         roomName: room.name_ar,
         roomCode: room.code,
         userName: session.user_name || 'عميل',
@@ -671,66 +702,131 @@ export const RoomsStatus = ({ branchId }: { branchId?: string }) => {
            </table>
         </div>
       ) : (
-        <div className="animate-in fade-in slide-in-from-bottom-5">
+        <div className="animate-in fade-in slide-in-from-bottom-5 space-y-8">
            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
-              <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
-                 <p className="text-[10px] font-black text-slate-400 uppercase mb-1">إجمالي الإيرادات</p>
-                 <h4 className="text-3xl font-black text-slate-900">{history.reduce((sum, h) => sum + (h.total_amount || 0), 0)} EGP</h4>
+              <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm group hover:border-indigo-200 transition-all">
+                 <div className="flex justify-between items-start mb-4">
+                    <div className="p-3 bg-emerald-50 text-emerald-600 rounded-2xl group-hover:bg-emerald-600 group-hover:text-white transition-all">
+                       <DollarSign size={20} />
+                    </div>
+                    <p className="text-[10px] font-black text-slate-400 uppercase">إجمالي الإيرادات</p>
+                 </div>
+                 <h4 className="text-3xl font-black text-slate-900 tabular-nums">{history.reduce((sum: any, h: any) => sum + (h.total_amount || 0), 0).toLocaleString()} <span className="text-sm opacity-30">EGP</span></h4>
               </div>
-              <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
-                 <p className="text-[10px] font-black text-slate-400 uppercase mb-1">عدد الجلسات</p>
-                 <h4 className="text-3xl font-black text-slate-900">{history.length}</h4>
+              <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm group hover:border-indigo-200 transition-all">
+                 <div className="flex justify-between items-start mb-4">
+                    <div className="p-3 bg-indigo-50 text-indigo-600 rounded-2xl group-hover:bg-indigo-600 group-hover:text-white transition-all">
+                       <Users size={20} />
+                    </div>
+                    <p className="text-[10px] font-black text-slate-400 uppercase">عدد الجلسات</p>
+                 </div>
+                 <h4 className="text-3xl font-black text-slate-900 tabular-nums">{history.length}</h4>
               </div>
-              <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
-                 <p className="text-[10px] font-black text-slate-400 uppercase mb-1">إجمالي الدقائق</p>
-                 <h4 className="text-3xl font-black text-slate-900">{history.reduce((sum, h) => sum + (Number(h.total_minutes) || 0), 0)}</h4>
+              <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm group hover:border-indigo-200 transition-all">
+                 <div className="flex justify-between items-start mb-4">
+                    <div className="p-3 bg-slate-50 text-slate-600 rounded-2xl group-hover:bg-slate-900 group-hover:text-white transition-all">
+                       <Clock size={20} />
+                    </div>
+                    <p className="text-[10px] font-black text-slate-400 uppercase">إجمالي الدقائق</p>
+                 </div>
+                 <h4 className="text-3xl font-black text-slate-900 tabular-nums">{history.reduce((sum: any, h: any) => sum + (Number(h.total_minutes) || 0), 0).toLocaleString()}</h4>
               </div>
-              <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
-                 <p className="text-[10px] font-black text-slate-400 uppercase mb-1">متوسط الجلسة</p>
-                 <h4 className="text-3xl font-black text-slate-900">
-                    {history.length > 0 ? (history.reduce((sum, h) => sum + (h.total_amount || 0), 0) / history.length).toFixed(1) : 0} EGP
+              <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm group hover:border-indigo-200 transition-all">
+                 <div className="flex justify-between items-start mb-4">
+                    <div className="p-3 bg-rose-50 text-rose-600 rounded-2xl group-hover:bg-rose-600 group-hover:text-white transition-all">
+                       <CheckCircle2 size={20} />
+                    </div>
+                    <p className="text-[10px] font-black text-slate-400 uppercase">متوسط الجلسة</p>
+                 </div>
+                 <h4 className="text-3xl font-black text-slate-900 tabular-nums">
+                    {history.length > 0 ? (history.reduce((sum: any, h: any) => sum + (h.total_amount || 0), 0) / history.length).toFixed(1) : 0} <span className="text-sm opacity-30">EGP</span>
                  </h4>
               </div>
            </div>
 
-           <div className="bg-white rounded-[3.5rem] border border-slate-100 shadow-xl p-10">
-              <h3 className="text-xl font-black text-slate-800 mb-8 pr-4 border-r-4 border-indigo-600">تحليل استخدام الغرف</h3>
-              <div className="space-y-8">
-                 {rooms.map(room => {
-                    const roomSessions = history.filter(h => h.service_id === room.id);
-                    const roomRevenue = roomSessions.reduce((sum, h) => sum + (h.total_amount || 0), 0);
-                    const usagePct = history.length > 0 ? (roomSessions.length / history.length) * 100 : 0;
-                    
-                    return (
-                       <div key={room.id} className="group">
-                          <div className="flex justify-between items-end mb-3">
-                             <div>
-                                <span className="text-sm font-black text-slate-800">{room.name_ar}</span>
-                                <span className="mr-3 text-[10px] font-bold text-slate-400 bg-slate-50 px-2 py-1 rounded-lg uppercase">{room.code}</span>
+           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              {/* Payment Methods Distribution */}
+              <div className="bg-white rounded-[3.5rem] border border-slate-100 shadow-xl p-10 overflow-hidden relative">
+                 <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-50 rounded-full blur-3xl -z-10 opacity-50" />
+                 <h3 className="text-xl font-black text-slate-800 mb-8 pr-4 border-r-4 border-emerald-500">طرق التحصيل والدفع</h3>
+                 <div className="space-y-6">
+                    {[
+                      { id: 'cash', label: 'كاش', color: 'bg-emerald-500', icon: <DollarSign size={14} />, text: 'text-emerald-600' },
+                      { id: 'vfcash', label: 'فودافون كاش', color: 'bg-rose-500', icon: <Phone size={14} />, text: 'text-rose-600' },
+                      { id: 'instapay', label: 'InstaPay', color: 'bg-indigo-500', icon: <Smartphone size={14} />, text: 'text-indigo-600' },
+                      { id: 'subscription', label: 'اشتراكات', color: 'bg-amber-500', icon: <Clock size={14} />, text: 'text-amber-600' },
+                      { id: 'corporate', label: 'شركات', color: 'bg-slate-900', icon: <Briefcase size={14} />, text: 'text-slate-900' }
+                    ].map(method => {
+                       const matches = history.filter((h: any) => h.payment_method === method.id || (method.id === 'cash' && !h.payment_method));
+                       const total = matches.reduce((sum: any, h: any) => sum + (h.total_amount || 0), 0);
+                       const count = matches.length;
+                       const pct = history.length > 0 ? (count / history.length) * 100 : 0;
+
+                       return (
+                          <div key={method.id} className="group">
+                             <div className="flex justify-between items-center mb-2">
+                                <div className="flex items-center gap-2">
+                                   <div className={`p-2 rounded-lg ${method.color} text-white shadow-sm`}>{method.icon}</div>
+                                   <span className="font-black text-slate-800 text-sm">{method.label}</span>
+                                </div>
+                                <div className="text-right">
+                                   <span className={`text-sm font-black ${method.text}`}>{total.toLocaleString()} EGP</span>
+                                   <span className="text-[10px] text-slate-300 font-bold mx-2">/ {count} تحصيل</span>
+                                </div>
                              </div>
-                             <div className="text-right">
-                                <span className="text-xs font-black text-indigo-600">{roomRevenue} EGP</span>
-                                <span className="mx-2 text-slate-200">|</span>
-                                <span className="text-[10px] font-bold text-slate-500">{roomSessions.length} جلسة</span>
+                             <div className="h-3 bg-slate-50 rounded-full overflow-hidden p-0.5 border border-slate-200/50">
+                                <div 
+                                  className={`h-full rounded-full transition-all duration-1000 ${method.color}`} 
+                                  style={{ width: `${pct || 1}%` }} 
+                                />
                              </div>
                           </div>
-                          <div className="h-4 bg-slate-50 rounded-full overflow-hidden border border-slate-100 flex items-center p-0.5">
-                             <div 
-                               className="h-full rounded-full transition-all duration-1000 bg-gradient-to-r from-indigo-500 to-indigo-400" 
-                               style={{ width: `${usagePct || 2}%` }}
-                             />
-                          </div>
-                       </div>
-                    );
-                 })}
+                       );
+                    })}
+                 </div>
+              </div>
+
+              {/* Room Usage */}
+              <div className="bg-white rounded-[3.5rem] border border-slate-100 shadow-xl p-10 overflow-hidden relative">
+                 <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-50 rounded-full blur-3xl -z-10 opacity-50" />
+                 <h3 className="text-xl font-black text-slate-800 mb-8 pr-4 border-r-4 border-indigo-600">تحليل إستخدام الغرف</h3>
+                 <div className="space-y-6">
+                    {rooms.map(room => {
+                        const roomSessions = history.filter((h: any) => h.service_id === room.id);
+                        const roomRevenue = roomSessions.reduce((sum: any, h: any) => sum + (h.total_amount || 0), 0);
+                        const usagePct = history.length > 0 ? (roomSessions.length / history.length) * 100 : 0;
+                        
+                        return (
+                           <div key={room.id} className="group">
+                              <div className="flex justify-between items-end mb-2">
+                                 <div>
+                                    <span className="text-sm font-black text-slate-800">{room.name_ar}</span>
+                                    <span className="mr-3 text-[10px] font-bold text-slate-400 bg-slate-50 px-2 py-0.5 rounded-lg border border-slate-200 uppercase">{room.code}</span>
+                                 </div>
+                                 <div className="text-right">
+                                    <span className="text-xs font-black text-indigo-600">{roomRevenue.toLocaleString()} EGP</span>
+                                    <span className="mx-2 text-slate-200">|</span>
+                                    <span className="text-[10px] font-bold text-slate-500">{roomSessions.length} جلسة</span>
+                                 </div>
+                              </div>
+                              <div className="h-3 bg-slate-50 rounded-full overflow-hidden p-0.5 border border-slate-200/50">
+                                 <div 
+                                   className="h-full rounded-full transition-all duration-1000 bg-gradient-to-r from-indigo-500 to-indigo-400 shadow-sm" 
+                                   style={{ width: `${usagePct || 1}%` }}
+                                 />
+                              </div>
+                           </div>
+                        );
+                    })}
+                 </div>
               </div>
            </div>
         </div>
       )}
 
       {/* Manual Serve Modal */}
-      {servingRoom && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xl p-4 animate-in fade-in">
+      {servingRoom && createPortal(
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-xl p-4 animate-in fade-in">
           <div className="bg-white w-full max-w-xl rounded-[4rem] shadow-2xl overflow-hidden animate-in slide-in-from-bottom-10 border border-white/20">
             <div className="bg-slate-900 p-12 flex justify-between items-center text-white relative">
                <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-indigo-500/10 to-transparent pointer-events-none" />
@@ -778,16 +874,25 @@ export const RoomsStatus = ({ branchId }: { branchId?: string }) => {
                   </div>
                </div>
 
-               <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-400 uppercase mr-3 tracking-widest">المدة المتوقعة (ساعة)</label>
-                  <input 
-                    type="number" 
-                    min="0.5" 
-                    step="0.5" 
-                    className="w-full bg-slate-50 border-2 border-slate-100 rounded-[1.5rem] px-6 py-4 font-black outline-none focus:border-indigo-500 transition-all" 
-                    value={durationHours} 
-                    onChange={e => setDurationHours(e.target.value)} 
-                  />
+               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                     <label className="text-[10px] font-black text-slate-400 uppercase mr-3 tracking-widest">وقت البدء</label>
+                     <input 
+                       type="datetime-local" 
+                       className="w-full bg-slate-50 border-2 border-slate-100 rounded-[1.5rem] px-6 py-4 font-black outline-none focus:border-indigo-500 transition-all text-center" 
+                       value={startTimeInput} 
+                       onChange={e => setStartTimeInput(e.target.value)} 
+                     />
+                  </div>
+                  <div className="space-y-2">
+                     <label className="text-[10px] font-black text-slate-400 uppercase mr-3 tracking-widest">وقت الانتهاء المتوقع</label>
+                     <input 
+                       type="datetime-local" 
+                       className="w-full bg-slate-50 border-2 border-slate-100 rounded-[1.5rem] px-6 py-4 font-black outline-none focus:border-indigo-500 transition-all text-center" 
+                       value={endTimeInput} 
+                       onChange={e => setEndTimeInput(e.target.value)} 
+                     />
+                  </div>
                </div>
 
                {checkFutureBooking(servingRoom.id) && (
@@ -815,11 +920,11 @@ export const RoomsStatus = ({ branchId }: { branchId?: string }) => {
             </div>
           </div>
         </div>
-      )}
+      , document.body)}
 
       {/* Catering Entry Modal Before Ending Session */}
-      {showCateringEntry && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/40 backdrop-blur-md p-4 animate-in fade-in">
+      {showCateringEntry && createPortal(
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/40 backdrop-blur-md p-4 animate-in fade-in">
            <div className="bg-white w-full max-w-4xl rounded-[3rem] shadow-2xl overflow-hidden flex flex-col md:flex-row h-[85vh]">
               {/* Product List */}
               <div className="flex-1 p-8 overflow-y-auto bg-slate-50">
@@ -922,11 +1027,11 @@ export const RoomsStatus = ({ branchId }: { branchId?: string }) => {
               </div>
            </div>
         </div>
-      )}
+      , document.body)}
 
       {/* Enhanced Receipt Modal */}
-      {showReceipt && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/80 backdrop-blur-xl p-4 animate-in fade-in print:bg-white print:p-0">
+      {showReceipt && createPortal(
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/80 backdrop-blur-xl p-4 animate-in fade-in print:bg-white print:p-0">
            <div className="receipt-container bg-white w-full max-w-md rounded-[3rem] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300 print:shadow-none print:rounded-none print:max-w-none">
               <div className="bg-slate-900 p-8 text-center text-white relative print:bg-white print:text-slate-900 print:border-b-2 print:border-slate-100">
                   <div className="absolute top-4 right-4 flex gap-2 print:hidden">
@@ -1019,10 +1124,10 @@ export const RoomsStatus = ({ branchId }: { branchId?: string }) => {
               </div>
            </div>
         </div>
-      )}
-      {/* Edit History Modal */}
-      {editingHistoryItem && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in">
+      , document.body)}
+       {/* Edit History Modal */}
+      {editingHistoryItem && createPortal(
+        <div className="fixed inset-0 z-[130] flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in">
            <div className="bg-white w-full max-w-md rounded-[3rem] shadow-2xl overflow-hidden p-10">
               <div className="flex justify-between items-center mb-8">
                  <button onClick={() => setEditingHistoryItem(null)} className="p-2 hover:bg-slate-100 rounded-full transition-colors"><X size={24} /></button>
@@ -1079,11 +1184,11 @@ export const RoomsStatus = ({ branchId }: { branchId?: string }) => {
               </div>
            </div>
         </div>
-      )}
+      , document.body)}
 
-      {/* Edit Live Session Modal */}
-      {editingLiveSession && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in">
+       {/* Edit Live Session Modal */}
+      {editingLiveSession && createPortal(
+        <div className="fixed inset-0 z-[130] flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in">
            <div className="bg-white w-full max-w-md rounded-[3rem] shadow-2xl overflow-hidden p-10">
               <div className="flex justify-between items-center mb-8">
                  <button onClick={() => setEditingLiveSession(null)} className="p-2 hover:bg-slate-100 rounded-full transition-colors"><X size={24} /></button>
@@ -1130,7 +1235,7 @@ export const RoomsStatus = ({ branchId }: { branchId?: string }) => {
               </div>
            </div>
         </div>
-      )}
+      , document.body)}
       {/* Printable Receipt Portal Container (A4 Redesign) */}
       {showReceipt && createPortal(
         <div id="printable-receipt" className="relative h-full" style={{ display: 'none' }}>
