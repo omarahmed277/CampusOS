@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { CalendarDays, ShoppingBag, Clock, CheckCircle2, User, RefreshCw, X, Receipt, TrendingUp, TrendingDown, Trash2, Tag, Sparkles, ChevronLeft, ChevronRight, ArrowUpRight, ArrowDownRight, Edit3, Save, AlertCircle, Printer, Briefcase, DollarSign, Phone, Smartphone } from 'lucide-react';
+import { CalendarDays, ShoppingBag, Clock, CheckCircle2, User, RefreshCw, X, Receipt, TrendingUp, TrendingDown, Trash2, Tag, Sparkles, ChevronLeft, ChevronRight, ArrowUpRight, ArrowDownRight, Edit3, Save, AlertCircle, Printer, Briefcase, DollarSign, Phone, Smartphone, Search } from 'lucide-react';
 
 import { createPortal } from 'react-dom';
 import { supabase } from '../lib/supabase';
@@ -59,7 +59,7 @@ const SessionRow = ({ session, onEdit, onDelete, onPrint }: {
             </div>
             <div className="text-right flex-1">
                <p className="text-slate-800 font-black text-base lg:group-hover:text-indigo-600 transition-colors">
-                  {session.services?.name_ar || session.user_name || session.customers?.full_name || 'مستخدم'}
+                  {session.services?.name_ar || session.user_name || session.customers?.full_name || (session.user_code === 'GUEST_KITCHEN' ? 'مطبخ زائر (Kiosk)' : 'مستخدم')}
                   {(session.services?.name_ar && (session.customers?.full_name || session.user_name) && (session.user_name !== session.services?.name_ar)) && (
                     <span className="text-slate-400 text-sm font-bold mr-2">
                        ({session.customers?.full_name || session.user_name})
@@ -180,6 +180,7 @@ export const DailyLog = ({ branchId }: { branchId?: string }) => {
   const [dailyNote, setDailyNote] = useState('');
   const [loading, setLoading] = useState(true);
   const [printSession, setPrintSession] = useState<Session | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const handlePrintReceipt = (session: Session) => {
     // We update state to trigger the portal render, then print
@@ -503,6 +504,19 @@ export const DailyLog = ({ branchId }: { branchId?: string }) => {
   const totalCashIn = cashSessionsIncome + subsIncome;
   const totalCashOut = expenses.reduce((acc, e) => acc + (Number(e.amount) || 0), 0);
 
+  const filteredSessions = sessions.filter(s => {
+    const searchLower = searchQuery.toLowerCase();
+    const userName = (s.user_name || '').toLowerCase();
+    const customerName = (s.customers?.full_name || '').toLowerCase();
+    const userCode = (s.user_code || '').toLowerCase();
+    const phoneNumber = (s.phone_number || '').toLowerCase();
+    
+    return userName.includes(searchLower) || 
+           customerName.includes(searchLower) || 
+           userCode.includes(searchLower) || 
+           phoneNumber.includes(searchLower);
+  });
+
   return (
     <div className="space-y-12 animate-in fade-in duration-700 font-['Cairo'] text-right pb-24 relative overflow-visible mt-6">
       <div className="fixed inset-0 pointer-events-none overflow-hidden -z-10">
@@ -512,33 +526,46 @@ export const DailyLog = ({ branchId }: { branchId?: string }) => {
       <div className="flex flex-col lg:flex-row gap-8 justify-between items-end lg:items-center">
       
 
-        {/* Date Navigator */}
-        <div className="w-full lg:w-auto bg-white/50 backdrop-blur-md p-2 rounded-[2rem] border border-white shadow-sm flex items-center justify-between lg:justify-end gap-2 md:gap-3">
-          <button 
-            onClick={() => navigateDate(1)}
-            className="p-3 md:p-4 hover:bg-white rounded-2xl transition-all hover:shadow-sm text-slate-400 hover:text-indigo-600 active:scale-90"
-          >
-            <ChevronRight size={20} className="md:w-6 md:h-6" />
-          </button>
-          
-          <div className="flex flex-col items-center px-2 md:px-4 flex-1 lg:min-w-[180px]">
-            <input 
-              type="date"
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
-              className="bg-transparent text-sm md:text-xl font-black text-slate-800 border-none outline-none text-center cursor-pointer hover:text-indigo-600 transition-colors"
-            />
-            <span className="text-[9px] md:text-[10px] font-black text-slate-400 uppercase tracking-widest">
-              {new Date(selectedDate).toLocaleDateString('ar-EG', { weekday: 'long' })}
-            </span>
-          </div>
+        {/* Date Navigator & Search */}
+        <div className="w-full lg:w-auto flex flex-col md:flex-row items-end lg:items-center gap-4">
+           <div className="relative group w-full md:w-64">
+              <input 
+                type="text"
+                placeholder="بحث باسم العميل أو الكود..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full bg-white/50 backdrop-blur-md px-6 py-4 md:py-5 pr-12 rounded-[1.5rem] border border-white shadow-sm font-black text-sm outline-none focus:border-indigo-500 transition-all text-right"
+              />
+              <Search className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-indigo-600 transition-colors" size={18} />
+           </div>
 
-          <button 
-            onClick={() => navigateDate(-1)}
-            className="p-3 md:p-4 hover:bg-white rounded-2xl transition-all hover:shadow-sm text-slate-400 hover:text-indigo-600 active:scale-90"
-          >
-            <ChevronLeft size={20} className="md:w-6 md:h-6" />
-          </button>
+           <div className="w-full lg:w-auto bg-white/50 backdrop-blur-md p-2 rounded-[2rem] border border-white shadow-sm flex items-center justify-between lg:justify-end gap-2 md:gap-3">
+             <button 
+               onClick={() => navigateDate(1)}
+               className="p-3 md:p-4 hover:bg-white rounded-2xl transition-all hover:shadow-sm text-slate-400 hover:text-indigo-600 active:scale-90"
+             >
+               <ChevronRight size={20} className="md:w-6 md:h-6" />
+             </button>
+             
+             <div className="flex flex-col items-center px-2 md:px-4 flex-1 lg:min-w-[180px]">
+               <input 
+                 type="date"
+                 value={selectedDate}
+                 onChange={(e) => setSelectedDate(e.target.value)}
+                 className="bg-transparent text-sm md:text-xl font-black text-slate-800 border-none outline-none text-center cursor-pointer hover:text-indigo-600 transition-colors"
+               />
+               <span className="text-[9px] md:text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                 {new Date(selectedDate).toLocaleDateString('ar-EG', { weekday: 'long' })}
+               </span>
+             </div>
+
+             <button 
+               onClick={() => navigateDate(-1)}
+               className="p-3 md:p-4 hover:bg-white rounded-2xl transition-all hover:shadow-sm text-slate-400 hover:text-indigo-600 active:scale-90"
+             >
+               <ChevronLeft size={20} className="md:w-6 md:h-6" />
+             </button>
+           </div>
         </div>
 
         <button 
@@ -651,7 +678,7 @@ export const DailyLog = ({ branchId }: { branchId?: string }) => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100/50 font-bold">
-              {sessions.map(session => (
+              {filteredSessions.map(session => (
                 <SessionRow 
                   key={session.id} 
                   session={session} 
@@ -674,7 +701,7 @@ export const DailyLog = ({ branchId }: { branchId?: string }) => {
 
         {/* Mobile Card View */}
         <div className="lg:hidden p-4 space-y-4">
-          {sessions.map((session) => {
+          {filteredSessions.map((session) => {
              const activeSub = session.customers?.subscriptions?.find((s: any) => 
                s.status === 'Active' && 
                new Date(s.end_date) >= new Date() &&

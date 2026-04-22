@@ -492,11 +492,6 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
         .update({ payment_method: method })
         .eq('id', sessionId);
       if (error) throw error;
-      
-      // Update local state so UI reflects it (optional if modal closes immediately)
-      if (checkoutBill && checkoutBill.id === sessionId) {
-        setCheckoutBill({ ...checkoutBill, payment_method: method });
-      }
     } catch (err) {
       console.error('Error updating payment method:', err);
     }
@@ -703,6 +698,22 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
         remainingAfter: editingBill.remainingSubHours,
         realOverage: editingBill.realOverage || 0
       });
+      // Notify the customer interface in real-time
+      supabase.channel(`workspace_session_${editingBill.id}`).send({
+        type: 'broadcast',
+        event: 'session_updated',
+        payload: { 
+          id: editingBill.id, 
+          status: 'completed',
+          total_amount: editingBill.totalAmount,
+          total_minutes: editingBill.diffMinutes,
+          catering_amount: editingBill.cateringAmount,
+          orders: editingBill.orders,
+          end_time: editingBill.endTime,
+          payment_method: finalPaymentMethod
+        }
+      });
+
       setEditingBill(null);
       fetchSessions();
     } catch (err: any) {
@@ -1011,7 +1022,7 @@ export const WorkspaceAdminSessions = ({ branchId }: { branchId?: string }) => {
                       </td>
                       <td className="py-6 px-6">
                         <div className={`font-mono text-lg font-black flex items-center justify-end gap-2 ${session.is_paused ? 'text-amber-500' : 'text-indigo-600'}`}>
-                          {hrs}س {mins}د
+                          {(totalMins / 60).toFixed(2)} سـاعة
                           {session.is_paused && <span className="text-[10px] bg-amber-100 px-1.5 py-0.5 rounded ml-2">P</span>}
                         </div>
                       </td>

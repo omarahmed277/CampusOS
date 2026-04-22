@@ -783,9 +783,23 @@ export const WorkspaceLogin = () => {
         const newData = payload.payload;
         setSession((prev: any) => {
           if (!prev) return null;
+          
+          if (newData.status === 'completed') {
+             localStorage.removeItem('workspace_session_id');
+             setFinalBill({
+               ...prev,
+               ...newData
+             });
+             return null;
+          }
+
           return {
             ...prev,
             status: newData.status,
+            total_amount: newData.total_amount || prev.total_amount,
+            total_minutes: newData.total_minutes || prev.total_minutes,
+            catering_amount: newData.catering_amount || prev.catering_amount,
+            orders: newData.orders || prev.orders,
             end_time: newData.end_time || prev.end_time
           } as any;
         });
@@ -996,36 +1010,51 @@ export const WorkspaceLogin = () => {
   }, []);
 
   const convertPointsToCashback = async () => {
-    if (!profileData) return;
+    if (!profileData || !session) return;
     setIsConverting(true);
     try {
-        const start = new Date(session.start_time).getTime();
-        const currentRefTime = session.is_paused ? new Date(session.last_pause_start).getTime() : new Date().getTime();
+        // 1. Calculate Live Points earned so far in this session
+        const now = new Date();
+        const start = new Date(session.start_time);
+        const currentRefTime = session.is_paused ? new Date(session.last_pause_start).getTime() : now.getTime();
         const totalPausedMs = (Number(session.total_paused_minutes) || 0) * 60000;
-        const diffMs = Math.max(0, currentRefTime - start - totalPausedMs);
+        const diffMs = Math.max(0, currentRefTime - start.getTime() - totalPausedMs);
         const liveMins = Math.floor(diffMs / 60000);
         
-        let prevConvertedMins = 0;
+        // Estimated workspace amount so far
+        const currentHourlyPrice = session.hourly_price || 0;
+        const estimatedSpaceAmt = Math.ceil((liveMins / 60) * currentHourlyPrice);
+        const cateringAmt = Number(session.catering_amount) || 0;
+        const estimatedTotal = estimatedSpaceAmt + cateringAmt;
+        
+        // Live points logic: 1 Point per 1 EGP (aligning with RoomsStatus.tsx)
+        // Or if ptsPerHour is intended: Math.floor(liveMins / (60 / ptsPerHour))
+        // We'll stick to EGP-based since that's how points are awarded at the end.
+        const totalLivePoints = Math.floor(estimatedTotal);
+        
+        let prevConvertedPoints = 0;
         let baseNotes = session.notes || '';
-        const match = baseNotes.match(/\|CONVERTED_MINS:(\d+)\|/);
+        const match = baseNotes.match(/\|CONVERTED_PTS:(\d+)\|/);
         if (match) {
-           prevConvertedMins = parseInt(match[1]);
-           baseNotes = baseNotes.replace(/\|CONVERTED_MINS:\d+\|/g, '').trim();
+           prevConvertedPoints = parseInt(match[1]);
+           baseNotes = baseNotes.replace(/\|CONVERTED_PTS:\d+\|/g, '').trim();
         }
         
-        const newMinsToConvert = Math.max(0, liveMins - prevConvertedMins);
-        const livePoints = Math.floor(newMinsToConvert / (60 / ptsPerHour));
-        
-        const pointsToConvert = (profileData.loyalty_points || 0) + livePoints;
-        if (pointsToConvert < 1) {
-            window.alert('لا يوجد نقاط كافية للتحويل');
+        const newLivePointsToConvert = Math.max(0, totalLivePoints - prevConvertedPoints);
+        const historicalPoints = profileData.loyalty_points || 0;
+        const totalPointsToConvert = historicalPoints + newLivePointsToConvert;
+
+        if (totalPointsToConvert < 1) {
+            window.alert('لا يوجد نقاط كافية للتحويل (تحتاج نقطة واحدة على الأقل)');
             setIsConverting(false);
             return;
         }
 
-        const rewardAmount = parseFloat((pointsToConvert / cbRatio).toFixed(2));
+        // Conversion logic: Points / Ratio = EGP
+        const rewardAmount = parseFloat((totalPointsToConvert / cbRatio).toFixed(2));
 
-        const { error } = await supabase
+        // 2. Perform Atomic Update
+        const { error: custError } = await supabase
             .from('customers')
             .update({
                 loyalty_points: 0,
@@ -1033,16 +1062,19 @@ export const WorkspaceLogin = () => {
             } as any)
             .eq('id', profileData.id);
 
-        if (error) throw error;
+        if (custError) throw custError;
         
-        const newNotes = `${baseNotes} |CONVERTED_MINS:${prevConvertedMins + newMinsToConvert}|`.trim();
+        // 3. Mark session notes so we don't convert these live points again
+        const newNotes = `${baseNotes} |CONVERTED_PTS:${prevConvertedPoints + newLivePointsToConvert}|`.trim();
         await supabase.from('workspace_sessions').update({ notes: newNotes }).eq('id', session.id);
         
         setSession({...session, notes: newNotes});
         await fetchProfileData();
-        window.alert(`🎉 تم تحويل ${pointsToConvert} نقطة بنجاح! \nتم إضافة ${rewardAmount} جنيه رصيد كاش باك لحسابك بنجاح. \nسيبدأ تجميع النقاط من جديد من الآن.`);
+        
+        window.alert(`🎉 تم تحويل ${totalPointsToConvert} نقطة بنجاح! \n\nتفاصيل التحويل:\n- نقاط سابقة: ${historicalPoints}\n- نقاط الجلسة الحالية: ${newLivePointsToConvert}\n\nتم إضافة ${rewardAmount} جنيه رصيد كاش باك لحسابك. ✨`);
     } catch (err: any) {
         console.error("Conversion failure:", err.message);
+        window.alert("عذراً، فشل التحويل. يرجى المحاولة مرة أخرى.");
     } finally {
         setIsConverting(false);
     }

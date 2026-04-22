@@ -116,44 +116,52 @@ export const KitchenKiosk = () => {
     
     setLoading(true);
     try {
-      let targetCode = userCode.trim().toUpperCase();
-      if (isGuest) targetCode = 'GUEST_KITCHEN';
+      if (isGuest) {
+        // Look for an existing GUEST_KITCHEN session for TODAY
+        const today = new Date();
+        today.setHours(0,0,0,0);
+        const tomorrow = new Date(today);
+        tomorrow.setDate(tomorrow.getDate() + 1);
 
-      // Find active session for this code
-      let session: any = null;
+        const { data: existingGuestSession } = await supabase
+          .from('workspace_sessions')
+          .select('*, customers(full_name)')
+          .eq('user_code', 'GUEST_KITCHEN')
+          .eq('branch_id', branchId)
+          .in('status', ['active', 'checkout_requested'])
+          .gte('created_at', today.toISOString())
+          .lt('created_at', tomorrow.toISOString())
+          .maybeSingle();
+
+        if (existingGuestSession) {
+            setActiveSession(existingGuestSession);
+        } else {
+            setActiveSession({ 
+              id: 'GUEST_PENDING', 
+              user_code: 'GUEST_KITCHEN', 
+              is_guest: true 
+            });
+        }
+        setStep('store');
+        setLoading(false);
+        return;
+      }
+
+      let targetCode = userCode.trim().toUpperCase();
       
-      const { data: existing, error } = await supabase
+      // Find active session for this code
+      const { data: session, error } = await supabase
         .from('workspace_sessions')
         .select('*, customers(full_name)')
         .eq('user_code', targetCode)
         .in('status', ['active', 'checkout_requested'])
         .maybeSingle();
 
-      session = existing;
+      if (error) throw error;
 
       if (!session) {
-        if (isGuest) {
-            // Create a guest session if none exists
-            const { data: newSession, error: createErr } = await (supabase as any)
-              .from('workspace_sessions')
-              .insert({
-                user_code: 'GUEST_KITCHEN',
-                phone_number: 'Guest',
-                status: 'active',
-                branch_id: branchId,
-                start_time: new Date().toISOString(),
-                created_at: new Date().toISOString()
-              })
-              .select()
-              .single();
-            
-            if (createErr) throw createErr;
-            session = newSession;
-        } else {
-            alert('لم يتم العثور على جلسة نشطة لهذا الكود. يرجى التأكد من الكود أو مراجعة الـ Admin.');
-            setLoading(false);
-            return;
-        }
+          alert('لم يتم العثور على جلسة نشطة لهذا الكود. يرجى التأكد من الكود أو مراجعة الـ Admin.');
+          return;
       }
 
       setActiveSession(session);
@@ -236,12 +244,37 @@ export const KitchenKiosk = () => {
       const cartEntries = Object.values(cart) as CartItem[];
       const subtotal = cartEntries.reduce((sum, entry) => sum + ((Number(entry.item.selling_price) || Number(entry.item.price) || 0) * (Number(entry.quantity) || 1)), 0);
       
+      let sessionId = activeSession.id;
+      let targetSession = activeSession;
+
+      // Handle Guest Purchase: Create a fresh session record if none exists today
+      if (activeSession.id === 'GUEST_PENDING') {
+          const { data: newSession, error: createErr } = await (supabase as any)
+            .from('workspace_sessions')
+            .insert({
+              user_code: 'GUEST_KITCHEN',
+              phone_number: 'Guest',
+              status: 'active', // Keep it active as requested ("make it opened time")
+              branch_id: branchId,
+              start_time: new Date().toISOString(),
+              created_at: new Date().toISOString(),
+              catering_amount: 0,
+              total_amount: 0
+            })
+            .select()
+            .single();
+          
+          if (createErr) throw createErr;
+          sessionId = newSession.id;
+          targetSession = newSession;
+      }
+
       // 1. Create Order records
       const { data: order, error: orderErr } = await (supabase as any)
         .from('orders')
         .insert({
-            customer_id: activeSession.customer_id,
-            session_id: activeSession.id,
+            customer_id: targetSession.customer_id || null,
+            session_id: sessionId,
             total_price: subtotal,
             branch_id: branchId
         })
@@ -270,8 +303,8 @@ export const KitchenKiosk = () => {
       }
 
       // 3. Update Session JSON
-      const currentOrders = Array.isArray(activeSession.orders) ? activeSession.orders : [];
-      const currentCateringAmount = Number(activeSession.catering_amount) || 0;
+      const currentOrders = Array.isArray(targetSession.orders) ? targetSession.orders : [];
+      const currentCateringAmount = Number(targetSession.catering_amount) || 0;
       
       const newOrders = [...currentOrders, ...cartEntries.map(e => ({
         id: e.item.id,
@@ -285,7 +318,7 @@ export const KitchenKiosk = () => {
       
       const newAmount = (Number(currentCateringAmount) || 0) + (Number(subtotal) || 0);
       
-      const currentTotalAmount = Number(activeSession.total_amount) || 0;
+      const currentTotalAmount = Number(targetSession.total_amount) || 0;
       const { error: sessionErr } = await (supabase as any)
         .from('workspace_sessions')
         .update({ 
@@ -293,21 +326,32 @@ export const KitchenKiosk = () => {
           catering_amount: newAmount,
           total_amount: currentTotalAmount + Number(subtotal)
         })
-        .eq('id', activeSession.id);
+        .eq('id', sessionId);
         
       if (sessionErr) throw sessionErr;
 
-      // Broadcast to users phone & admin
-      supabase.channel(`workspace_session_${activeSession.id}`).send({
+      // Broadcast to both the specific session channel AND the admin branch channel
+      // This ensures the Admin Dashboard refreshes immediately
+      const broadcastPayload = { id: sessionId, status: targetSession.status };
+      
+      supabase.channel(`workspace_session_${sessionId}`).send({
         type: 'broadcast',
         event: 'session_updated',
-        payload: { id: activeSession.id, status: activeSession.status }
+        payload: broadcastPayload
       });
+
+      if (branchId) {
+          supabase.channel(`workspace_admin_sessions_${branchId}`).send({
+            type: 'broadcast',
+            event: 'session_updated',
+            payload: broadcastPayload
+          });
+      }
 
       setOrderBill({
         items: cartEntries,
         total: subtotal,
-        user: orderName.trim() || (activeSession as any).customers?.full_name || (activeSession as any).user_code
+        user: orderName.trim() || (targetSession as any).customers?.full_name || (targetSession as any).user_code
       });
       setStep('success');
       setCart({});

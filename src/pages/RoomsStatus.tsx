@@ -43,6 +43,8 @@ export const RoomsStatus = ({ branchId }: { branchId?: string }) => {
   // Manual Override States
   const [overrideDuration, setOverrideDuration] = useState('');
   const [overrideRoomAmount, setOverrideRoomAmount] = useState('');
+  const [overrideStartTime, setOverrideStartTime] = useState('');
+  const [overrideEndTime, setOverrideEndTime] = useState('');
   const [partnerCode, setPartnerCode] = useState('');
 
   const handlePrintA4Receipt = () => {
@@ -237,6 +239,7 @@ export const RoomsStatus = ({ branchId }: { branchId?: string }) => {
         start_time: startTime.toISOString(),
         end_time: endTime.toISOString(),
         status: 'active',
+        hourly_price: servingRoom.base_price,
         created_at: new Date().toISOString()
       });
 
@@ -264,18 +267,19 @@ export const RoomsStatus = ({ branchId }: { branchId?: string }) => {
     let diffMins = Math.ceil(Math.abs(end.getTime() - start.getTime()) / 60000);
     if (diffMins === 0) diffMins = 1;
     
-    // Round UP to the nearest 30 minute interval
-    const billedIntervals = Math.ceil(diffMins / 30);
-    const billedMins = billedIntervals * 30;
+    // Use the session's hourly price if available, otherwise the room's base price
+    const currentHourlyPrice = session.hourly_price || room.base_price;
+    const initialAmount = Math.ceil((diffMins/60) * currentHourlyPrice);
+    const hours = parseFloat((diffMins / 60).toFixed(2));
     
-    const initialAmount = Math.ceil((billedMins/60) * room.base_price);
-
     setTempOrders([]);
-    setOverrideDuration(billedMins.toString());
+    setOverrideDuration(hours.toString());
     setOverrideRoomAmount(initialAmount.toString());
+    setOverrideStartTime(session.start_time);
+    setOverrideEndTime(end.toISOString());
     setShowCateringEntry({
       room,
-      session
+      session: { ...session, hourly_price: currentHourlyPrice }
     });
   };
 
@@ -300,19 +304,20 @@ export const RoomsStatus = ({ branchId }: { branchId?: string }) => {
     
     setProcessing(true);
     try {
-      const startTime = new Date(session.start_time);
-      const endTime = new Date();
+      const startTime = new Date(overrideStartTime || session.start_time);
+      const endTime = new Date(overrideEndTime || new Date().toISOString());
       
-      const diffMins = parseInt(overrideDuration) || 0;
+      const totalHours = parseFloat(overrideDuration) || 0;
       const workspaceAmount = parseFloat(overrideRoomAmount) || 0;
       const cateringAmount = tempOrders.reduce((sum, o) => sum + (o.price * o.quantity), 0);
       const totalAmount = workspaceAmount + cateringAmount;
       
       const { error: sessionError } = await (supabase.from('workspace_sessions' as any) as any)
           .update({ 
+              start_time: startTime.toISOString(),
               end_time: endTime.toISOString(), 
               status: 'completed',
-              total_minutes: diffMins,
+              total_minutes: Math.round(totalHours * 60),
               total_amount: totalAmount,
               catering_amount: cateringAmount,
               orders: tempOrders
@@ -365,7 +370,7 @@ export const RoomsStatus = ({ branchId }: { branchId?: string }) => {
         userCode: session.user_code,
         startTime: session.start_time,
         endTime: endTime.toISOString(),
-        duration: diffMins,
+        duration: Math.round(totalHours * 60),
         rate: room.base_price,
         workspaceAmount,
         cateringAmount,
@@ -425,7 +430,9 @@ export const RoomsStatus = ({ branchId }: { branchId?: string }) => {
         .update({
           user_name: updatedData.user_name,
           user_code: updatedData.user_code,
-          start_time: updatedData.start_time
+          start_time: updatedData.start_time,
+          end_time: updatedData.end_time,
+          hourly_price: parseFloat(updatedData.hourly_price) || 0
         })
         .eq('id', updatedData.id);
 
@@ -727,9 +734,9 @@ export const RoomsStatus = ({ branchId }: { branchId?: string }) => {
                     <div className="p-3 bg-slate-50 text-slate-600 rounded-2xl group-hover:bg-slate-900 group-hover:text-white transition-all">
                        <Clock size={20} />
                     </div>
-                    <p className="text-[10px] font-black text-slate-400 uppercase">إجمالي الدقائق</p>
+                    <p className="text-[10px] font-black text-slate-400 uppercase">إجمالي الساعات</p>
                  </div>
-                 <h4 className="text-3xl font-black text-slate-900 tabular-nums">{history.reduce((sum: any, h: any) => sum + (Number(h.total_minutes) || 0), 0).toLocaleString()}</h4>
+                 <h4 className="text-3xl font-black text-slate-900 tabular-nums">{(history.reduce((sum: any, h: any) => sum + (Number(h.total_minutes) || 0), 0) / 60).toFixed(1)}</h4>
               </div>
               <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm group hover:border-indigo-200 transition-all">
                  <div className="flex justify-between items-start mb-4">
@@ -980,9 +987,29 @@ export const RoomsStatus = ({ branchId }: { branchId?: string }) => {
                  </div>
 
                  <div className="space-y-4 border-t border-slate-50 pt-6">
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+                        <div className="space-y-1">
+                           <label className="text-[9px] font-black text-slate-400 uppercase pr-2">وقت البدء</label>
+                           <input 
+                             type="datetime-local" 
+                             className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-2 font-black text-[10px] h-10 text-center"
+                             value={overrideStartTime ? new Date(new Date(overrideStartTime).getTime() - new Date(overrideStartTime).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : ''}
+                             onChange={e => setOverrideStartTime(new Date(e.target.value).toISOString())}
+                           />
+                        </div>
+                        <div className="space-y-1">
+                           <label className="text-[9px] font-black text-slate-400 uppercase pr-2">وقت الانتهاء</label>
+                           <input 
+                             type="datetime-local" 
+                             className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-2 font-black text-[10px] h-10 text-center"
+                             value={overrideEndTime ? new Date(new Date(overrideEndTime).getTime() - new Date(overrideEndTime).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : ''}
+                             onChange={e => setOverrideEndTime(new Date(e.target.value).toISOString())}
+                           />
+                        </div>
+                     </div>
+                     <div className="grid grid-cols-2 gap-3">
                        <div className="space-y-1">
-                          <label className="text-[9px] font-black text-slate-400 uppercase pr-2">المدة (بالدقائق)</label>
+                          <label className="text-[9px] font-black text-slate-400 uppercase pr-2">المدة (بالساعات)</label>
                           <input 
                             type="number" 
                             className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-2 font-black text-xs h-10"
@@ -1157,7 +1184,7 @@ export const RoomsStatus = ({ branchId }: { branchId?: string }) => {
                     />
                  </div>
                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-slate-400 uppercase pr-2">المدة (بالدقائق)</label>
+                    <label className="text-[10px] font-black text-slate-400 uppercase pr-2">المدة (بالساعات)</label>
                     <input 
                       type="number" 
                       className="w-full bg-slate-50 border border-slate-100 rounded-[1.5rem] px-6 py-4 font-black outline-none focus:border-indigo-500 transition-all text-center"
@@ -1221,13 +1248,34 @@ export const RoomsStatus = ({ branchId }: { branchId?: string }) => {
                     <input 
                       type="datetime-local" 
                       className="w-full bg-slate-50 border border-slate-100 rounded-[1.5rem] px-6 py-4 font-black outline-none focus:border-indigo-500 transition-all text-center"
-                      value={new Date(editingLiveSession.start_time).toISOString().slice(0, 16)}
+                      value={editingLiveSession.start_time ? new Date(new Date(editingLiveSession.start_time).getTime() - new Date(editingLiveSession.start_time).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : ''}
                       onChange={e => setEditingLiveSession({ ...editingLiveSession, start_time: new Date(e.target.value).toISOString() })}
                     />
                  </div>
 
-                 <button 
-                  onClick={() => handleUpdateLiveSession(editingLiveSession)}
+                  
+                  <div className="space-y-2">
+                     <label className="text-[10px] font-black text-slate-400 uppercase pr-2">وقت الانتهاء المتوقع</label>
+                     <input 
+                       type="datetime-local" 
+                       className="w-full bg-slate-50 border border-slate-100 rounded-[1.5rem] px-6 py-4 font-black outline-none focus:border-indigo-500 transition-all text-center"
+                       value={editingLiveSession.end_time ? new Date(new Date(editingLiveSession.end_time).getTime() - new Date(editingLiveSession.end_time).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : ''}
+                       onChange={e => setEditingLiveSession({ ...editingLiveSession, end_time: new Date(e.target.value).toISOString() })}
+                     />
+                  </div>
+
+                  <div className="space-y-2">
+                     <label className="text-[10px] font-black text-indigo-600 uppercase pr-2">سعر الساعة (EGP)</label>
+                     <input 
+                       type="number" 
+                       className="w-full bg-indigo-50 border border-indigo-100 rounded-[1.5rem] px-6 py-4 font-black outline-none focus:border-indigo-500 transition-all text-center"
+                       value={editingLiveSession.hourly_price || ''}
+                       onChange={e => setEditingLiveSession({ ...editingLiveSession, hourly_price: e.target.value })}
+                     />
+                  </div>
+
+                  <button 
+                   onClick={() => handleUpdateLiveSession(editingLiveSession)}
                   className="w-full bg-slate-900 text-white h-16 rounded-[2rem] font-black text-sm hover:bg-emerald-600 transition-all shadow-xl shadow-slate-200 mt-4 active:scale-95"
                  >
                     تحديث بيانات الجلسة
