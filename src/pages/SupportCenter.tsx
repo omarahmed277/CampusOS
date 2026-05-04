@@ -111,7 +111,18 @@ export const SupportCenter = ({ branchId }: { branchId?: string }) => {
            <MessageSquare size={14} className="text-indigo-400" />
         </div>
 
-        {/* Empty State / Listening Indicator */}
+        {/* Call Management Section */}
+        <div className="relative z-10">
+          <WalkieTalkie 
+            userId={adminUser.id} 
+            userName={adminUser.user_metadata?.full_name || 'Admin'} 
+            branchId={branchId} 
+            isAdmin={true} 
+            isEmbedded={true}
+          />
+        </div>
+
+        {/* Empty State / Listening Indicator - Only show if not in a call */}
         <div className="bg-white/[0.02] border border-white/5 border-dashed rounded-[2.5rem] p-12 flex flex-col items-center text-center space-y-4">
            <div className="w-20 h-20 rounded-full border-4 border-indigo-500/20 flex items-center justify-center relative">
               <div className="absolute inset-0 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
@@ -121,20 +132,6 @@ export const SupportCenter = ({ branchId }: { branchId?: string }) => {
               <p className="font-black text-white">في انتظار طلبات الدعم</p>
               <p className="text-xs font-bold text-slate-500">سيظهر تنبيه صوتي ومرئي فور طلب أحد العملاء للمساعدة</p>
            </div>
-        </div>
-      </div>
-
-      {/* Global WalkieTalkie (Admin Mode) */}
-      {/* This is already integrated in App.tsx globally for admins, 
-          but adding it here explicitly ensures it's active if they use this dedicated URL */}
-      <div className="fixed bottom-10 left-0 right-0 px-6 flex justify-center pointer-events-none">
-        <div className="pointer-events-auto">
-          <WalkieTalkie 
-            userId={adminUser.id} 
-            userName={adminUser.user_metadata?.full_name || 'Admin'} 
-            branchId={branchId} 
-            isAdmin={true} 
-          />
         </div>
       </div>
     </div>

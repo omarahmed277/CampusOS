@@ -7,9 +7,10 @@ interface WalkieTalkieProps {
   userName: string;
   branchId: string;
   isAdmin?: boolean;
+  isEmbedded?: boolean;
 }
 
-export const WalkieTalkie = ({ userId, userName, branchId, isAdmin = false }: WalkieTalkieProps) => {
+export const WalkieTalkie = ({ userId, userName, branchId, isAdmin = false, isEmbedded = false }: WalkieTalkieProps) => {
   const [status, setStatus] = useState<'idle' | 'calling' | 'connected' | 'incoming'>('idle');
   const [isTalking, setIsTalking] = useState(false);
   const [remoteUser, setRemoteUser] = useState<{ id: string, name: string } | null>(null);
@@ -46,10 +47,21 @@ export const WalkieTalkie = ({ userId, userName, branchId, isAdmin = false }: Wa
     channelRef.current
       .on('broadcast', { event: 'call_request' }, ({ payload }: any) => {
         console.log('[WalkieTalkie] Received call_request', payload);
-        if (isAdmin && statusRef.current === 'idle') {
-          setRemoteUser({ id: payload.userId, name: payload.userName });
-          setStatus('incoming');
-          playRingtone();
+        if (isAdmin) {
+          if (statusRef.current === 'idle') {
+            setRemoteUser({ id: payload.userId, name: payload.userName });
+            setStatus('incoming');
+            playRingtone(payload.userName);
+          } else if (statusRef.current !== 'incoming') {
+            // Send busy signal back to the requester
+            sendWithFallback('busy', { targetId: payload.userId });
+          }
+        }
+      })
+      .on('broadcast', { event: 'busy' }, ({ payload }: any) => {
+        if (!isAdmin && payload.targetId === userId && statusRef.current === 'calling') {
+          setError("المسؤول مشغول حالياً، يرجى المحاولة لاحقاً");
+          setTimeout(() => endCall(true), 3000);
         }
       })
       .on('broadcast', { event: 'call_accept' }, ({ payload }: any) => {
@@ -107,13 +119,39 @@ export const WalkieTalkie = ({ userId, userName, branchId, isAdmin = false }: Wa
     }
   };
 
-  const playRingtone = () => {
+  useEffect(() => {
+    if (isAdmin && status === 'idle') {
+      if ('Notification' in window && Notification.permission === 'default') {
+        Notification.requestPermission();
+      }
+    }
+  }, [isAdmin, status]);
+
+  const playRingtone = (callerName?: string) => {
     if (!ringtoneRef.current) {
-        // Use a built-in notification sound or a simple beep
         ringtoneRef.current = new Audio('https://assets.mixkit.co/active_storage/sfx/2358/2358-preview.mp3');
         ringtoneRef.current.loop = true;
     }
-    ringtoneRef.current.play().catch(e => console.warn("Audio play failed:", e));
+    ringtoneRef.current.play().catch(e => {
+        console.warn("Audio play failed, user interaction may be required:", e);
+        setError("يرجى الضغط على أي مكان في الصفحة لتفعيل التنبيهات الصوتية");
+    });
+
+    // Show system notification
+    if (isAdmin && 'Notification' in window && Notification.permission === 'granted') {
+      new Notification("طلب مساعدة جديد", {
+        body: `العميل ${callerName || remoteUser?.name || 'مجهول'} يطلب التحدث معك`,
+        icon: '/logo.png',
+        tag: 'support-call',
+        renotify: true,
+        silent: false
+      } as any);
+    }
+
+    // Vibrate mobile device
+    if ('vibrate' in navigator) {
+      navigator.vibrate([500, 200, 500, 200, 500]);
+    }
   };
 
   const stopRingtone = () => {
@@ -123,21 +161,50 @@ export const WalkieTalkie = ({ userId, userName, branchId, isAdmin = false }: Wa
     }
   };
 
+  const checkPermissions = async () => {
+    try {
+      const result = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+      if (result.state === 'denied') {
+        setError("Microphone access is denied. Please enable it in browser settings.");
+        return false;
+      }
+      return true;
+    } catch (e) {
+      // Fallback for browsers that don't support permissions query for mic
+      return true;
+    }
+  };
+
   const startWebRTC = async (targetId: string) => {
     try {
+      const isAllowed = await checkPermissions();
+      if (!isAllowed) return;
+
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       localStreamRef.current = stream;
       
-      // Mute local stream initially (PTT mode)
-      stream.getAudioTracks().forEach(track => track.enabled = false);
+      // Mute local stream initially (Toggle mode)
+      stream.getAudioTracks().forEach(track => track.enabled = isTalking);
 
       const pc = new RTCPeerConnection({
-        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' },
+          { urls: 'stun:stun2.l.google.com:19302' }
+        ]
       });
 
       pc.onicecandidate = (event) => {
         if (event.candidate) {
           sendSignal(targetId, { ice: event.candidate });
+        }
+      };
+
+      pc.oniceconnectionstatechange = () => {
+        console.log(`[WalkieTalkie] ICE State: ${pc.iceConnectionState}`);
+        if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') {
+          setError("Connection lost. Retrying...");
+          // In a real app, we might try to restart ICE here
         }
       };
 
@@ -150,15 +217,19 @@ export const WalkieTalkie = ({ userId, userName, branchId, isAdmin = false }: Wa
       stream.getTracks().forEach(track => pc.addTrack(track, stream));
       
       if (!isAdmin) {
-        const offer = await pc.createOffer();
+        const offer = await pc.createOffer({
+            offerToReceiveAudio: true
+        });
         await pc.setLocalDescription(offer);
         sendSignal(targetId, { sdp: offer });
       }
 
       pcRef.current = pc;
       setStatus('connected');
+      setError(null);
     } catch (err: any) {
-      setError("Failed to access microphone: " + err.message);
+      console.error("WebRTC Error:", err);
+      setError("Unable to access microphone. Please check permissions.");
       endCall(true);
     }
   };
@@ -193,7 +264,12 @@ export const WalkieTalkie = ({ userId, userName, branchId, isAdmin = false }: Wa
     sendWithFallback('webrtc_signal', { targetId, signalData, senderId: userId });
   };
 
-  const initiateCall = () => {
+  const initiateCall = async () => {
+    if (status !== 'idle') return;
+    
+    const isAllowed = await checkPermissions();
+    if (!isAllowed) return;
+
     setStatus('calling');
     sendWithFallback('call_request', { userId, userName });
   };
@@ -241,7 +317,7 @@ export const WalkieTalkie = ({ userId, userName, branchId, isAdmin = false }: Wa
         >
           <div className="absolute inset-0 bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity" />
           <Radio size={14} className="animate-pulse" />
-          <span className="relative z-10 uppercase tracking-widest">Walkie Talkie</span>
+          <span className="relative z-10 uppercase tracking-widest">تحدث مع المسؤول</span>
         </button>
       )}
 
@@ -254,7 +330,7 @@ export const WalkieTalkie = ({ userId, userName, branchId, isAdmin = false }: Wa
       )}
 
       {status === 'incoming' && (
-        <div className="fixed bottom-24 right-6 z-[200] bg-slate-900 border border-indigo-500/30 p-6 rounded-[2rem] shadow-2xl animate-in slide-in-from-right-10 duration-500 max-w-xs">
+        <div className={`${isEmbedded ? 'w-full' : 'fixed bottom-24 right-6 z-[200] max-w-xs animate-in slide-in-from-right-10'} bg-slate-900 border border-indigo-500/30 p-6 rounded-[2rem] shadow-2xl duration-500`}>
           <div className="flex items-center gap-4 mb-4">
              <div className="w-12 h-12 bg-indigo-500 rounded-2xl flex items-center justify-center text-white animate-pulse">
                 <Phone size={24} />
@@ -282,14 +358,14 @@ export const WalkieTalkie = ({ userId, userName, branchId, isAdmin = false }: Wa
       )}
 
       {status === 'connected' && (
-        <div className={`flex items-center gap-3 ${isAdmin ? 'fixed bottom-24 right-6 z-[200] bg-slate-900 border border-emerald-500/30 p-4 rounded-3xl shadow-2xl' : ''}`}>
-          <div className="flex flex-col items-end gap-1">
+        <div className={`flex items-center gap-3 ${isEmbedded ? 'w-full justify-between' : (isAdmin ? 'fixed bottom-24 right-6 z-[200] bg-slate-900 border border-emerald-500/30 p-4 rounded-3xl shadow-2xl' : '')}`}>
+          <div className="flex flex-col items-end gap-1 flex-1">
              <p className="text-[8px] font-black text-slate-500 uppercase tracking-tighter">
                 {isAdmin ? `متصل مع: ${remoteUser?.name}` : 'متصل مع المسؤول'}
              </p>
              <div 
                onClick={togglePTT}
-               className={`h-14 px-6 rounded-2xl font-black text-xs flex items-center gap-3 transition-all cursor-pointer select-none active:scale-95 ${
+               className={`h-14 w-full px-6 rounded-2xl font-black text-xs flex items-center justify-center gap-3 transition-all cursor-pointer select-none active:scale-95 ${
                  isTalking 
                    ? 'bg-rose-600 text-white shadow-lg shadow-rose-900/40 animate-pulse' 
                    : 'bg-emerald-600 text-white shadow-lg shadow-emerald-900/40'
@@ -301,7 +377,7 @@ export const WalkieTalkie = ({ userId, userName, branchId, isAdmin = false }: Wa
           </div>
           <button 
             onClick={() => endCall(false)}
-            className="w-14 h-14 bg-rose-500/10 text-rose-500 rounded-2xl flex items-center justify-center hover:bg-rose-500 hover:text-white transition-all"
+            className="w-14 h-14 bg-rose-500/10 text-rose-500 rounded-2xl flex items-center justify-center hover:bg-rose-500 hover:text-white transition-all flex-shrink-0"
           >
              <PhoneOff size={20} />
           </button>
